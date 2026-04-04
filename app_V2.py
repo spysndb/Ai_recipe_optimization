@@ -187,52 +187,15 @@ with tab2:
 
         with c4:
             st.markdown("### 🤖 執行運算")
-            # 新增：列出相同配方按鈕
-            btn_find_history = st.button("🔍 列出相同添加配方", use_container_width=True)
-            # 原有：AI推測按鈕
-            btn_predict = st.button("🚀 執行 AI 推測", use_container_width=True, type="primary")
+            # 將兩個按鈕合併為一個
+            btn_predict = st.button("🚀 執行 AI 推測與歷史查詢", use_container_width=True, type="primary")
 
         # ==========================================
-        # 下方全寬度顯示區：歷史配方查詢結果
-        # ==========================================
-        if btn_find_history:
-            st.markdown("#### 📚 歷史相同添加物配方清單")
-            selected_chems = list(chem_inputs.keys())
-            unselected_chems = [c for c in optional_chems if c not in selected_chems]
-            
-            # 建立篩選條件 (Mask)
-            mask = pd.Series(True, index=st.session_state.df.index)
-            
-            # 條件一：勾選的添加物必須 > 0
-            for c in selected_chems:
-                if c in st.session_state.df.columns:
-                    mask = mask & (st.session_state.df[c] > 0)
-                    
-            # 條件二：未勾選的添加物必須是 0 或空白 (嚴格匹配)
-            for c in unselected_chems:
-                if c in st.session_state.df.columns:
-                    mask = mask & ((st.session_state.df[c] == 0) | (st.session_state.df[c].isna()))
-                    
-            matched_df = st.session_state.df[mask]
-            
-            if matched_df.empty:
-                st.info("💡 資料庫中目前沒有『完全相同添加物組合』的歷史配方。這將是一組全新的嘗試！")
-            else:
-                st.success(f"✅ 找到 {len(matched_df)} 筆相同的歷史配方！")
-                
-                # 整理要顯示在畫面上的欄位 (隱藏整排都是 0 的未選化學品，畫面比較乾淨)
-                display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + selected_chems + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
-                # 確保欄位存在於資料庫中
-                display_cols = [c for c in display_cols if c in matched_df.columns]
-                
-                # 顯示表格
-                st.dataframe(matched_df[display_cols], use_container_width=True)
-                
-        # ==========================================
-        # 下方全寬度顯示區：AI 推測結果
+        # 下方全寬度顯示區：AI 推測結果 + 歷史配方查詢
         # ==========================================
         if btn_predict:
             if selected_count <= 10:
+                # ------ 1. 執行 AI 模型推測 ------
                 input_data = {col: 0.0 for col in st.session_state.feature_cols}
                 input_data['temp'], input_data['region'] = temp, region
                 input_data['H2O_weight'], input_data['H3PO4_weight'], input_data['H2O2_weight'] = h2o, h3po4, h2o2
@@ -243,11 +206,44 @@ with tab2:
                 pred_snag = st.session_state.model_snag.predict(input_df)[0]
                 pred_cu_ni = st.session_state.model_cu_ni.predict(input_df)[0]
                 
-                st.success("推測完成！")
-                # 使用 column 來排版預測結果
+                st.success("✅ AI 推測完成！")
                 res_c1, res_c2, res_c3 = st.columns([1, 1, 2])
                 res_c1.metric("預測 Snag Cu (um)", f"{pred_snag:.3f}")
                 res_c2.metric("預測 Cu Ni (um)", f"{pred_cu_ni:.3f}")
+                
+                st.divider()
+
+                # ------ 2. 執行歷史配方查詢 ------
+                st.markdown("#### 📚 歷史相同添加物配方清單")
+                selected_chems = list(chem_inputs.keys())
+                unselected_chems = [c for c in optional_chems if c not in selected_chems]
+                
+                # 建立篩選條件
+                mask = pd.Series(True, index=st.session_state.df.index)
+                
+                # 條件一：勾選的添加物必須 > 0
+                for c in selected_chems:
+                    if c in st.session_state.df.columns:
+                        mask = mask & (st.session_state.df[c] > 0)
+                        
+                # 條件二：未勾選的添加物必須是 0 或空白 (嚴格匹配)
+                for c in unselected_chems:
+                    if c in st.session_state.df.columns:
+                        mask = mask & ((st.session_state.df[c] == 0) | (st.session_state.df[c].isna()))
+                        
+                matched_df = st.session_state.df[mask]
+                
+                if matched_df.empty:
+                    st.info("💡 資料庫中目前沒有『完全相同添加物組合』的歷史配方。這將是一組全新的嘗試！")
+                else:
+                    st.success(f"🔍 找到 {len(matched_df)} 筆相同的歷史配方！")
+                    
+                    # 整理要顯示在畫面上的欄位
+                    display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + selected_chems + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                    display_cols = [c for c in display_cols if c in matched_df.columns]
+                    
+                    # 顯示表格
+                    st.dataframe(matched_df[display_cols], use_container_width=True)
 
         st.divider()
         
