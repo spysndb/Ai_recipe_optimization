@@ -268,27 +268,43 @@ with tab2:
                 
                 st.divider()
 
-                # 4. 歷史配方查詢
-                st.markdown("#### 📚 歷史相同添加物配方清單")
+                # 4. 歷史配方查詢 (擴大範圍：容許最多多加 1 種添加物)
+                st.markdown("#### 📚 歷史相似配方清單 (完全相同，或僅多加1種成分)")
                 selected_chems = list(chem_inputs.keys())
                 unselected_chems = [c for c in optional_chems if c not in selected_chems]
                 
-                mask = pd.Series(True, index=st.session_state.df.index)
+                # 條件一：使用者勾選的添加物，配方中必須都有 (大於 0)
+                mask_selected = pd.Series(True, index=st.session_state.df.index)
                 for c in selected_chems:
                     if c in st.session_state.df.columns:
-                        mask = mask & (st.session_state.df[c] > 0)
-                for c in unselected_chems:
-                    if c in st.session_state.df.columns:
-                        mask = mask & ((st.session_state.df[c] == 0) | (st.session_state.df[c].isna()))
+                        mask_selected = mask_selected & (st.session_state.df[c] > 0)
                         
-                matched_df = st.session_state.df[mask]
+                # 條件二：使用者未勾選的添加物中，最多只能有 1 種大於 0
+                valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
+                # 計算每筆資料中，有幾個未勾選的化學品是大於 0 的
+                extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
+                # 限制額外的添加物數量 <= 1
+                mask_extra = extra_additive_count <= 1
+                
+                # 合併兩個條件過濾資料庫
+                matched_df = st.session_state.df[mask_selected & mask_extra]
                 
                 if matched_df.empty:
-                    st.info("💡 資料庫中目前沒有『完全相同添加物組合』的歷史配方。這是一組全新的嘗試，請參考上方的 AI 預測！")
+                    st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試，請參考上方的 AI 預測！")
                 else:
-                    st.success(f"🔍 找到 {len(matched_df)} 筆相同的歷史配方！")
-                    display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + selected_chems + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                    st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
+                    
+                    # 決定要顯示的欄位：找出這些被篩選出來的配方中，有哪些添加物是 > 0 的
+                    # 這樣才能在畫面上清楚看到那「多出來的1種」到底加了什麼
+                    cols_to_show = set(selected_chems)
+                    for c in valid_unselected:
+                        if (matched_df[c] > 0).any():  # 只要該欄位在過濾後的資料中有任何大於0的值，就顯示
+                            cols_to_show.add(c)
+                            
+                    display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                    # 確保要顯示的欄位真的存在於 DataFrame 中
                     display_cols = [c for c in display_cols if c in matched_df.columns]
+                    
                     st.dataframe(matched_df[display_cols], use_container_width=True)
 
         st.divider()
