@@ -129,13 +129,13 @@ with tab1:
         st.success("資料讀取與模型訓練成功！")
 
 # ------------------------------------------
-# 分頁二：正向推測與紀錄 (大幅修改排版與分類)
+# 分頁二：正向推測與紀錄 (新增歷史配方查詢)
 # ------------------------------------------
 with tab2:
     if st.session_state.df is None:
         st.info("請先至「資料載入」分頁上傳 CSV 檔案。")
     else:
-        # 使用 4 個較窄的 column 來壓縮畫面，讓格子不要太寬
+        # 使用 4 個較窄的 column 來壓縮畫面
         c1, c2, c3, c4 = st.columns(4)
         
         with c1:
@@ -156,17 +156,14 @@ with tab2:
             base_features = ['temp', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight']
             optional_chems = [c for c in st.session_state.feature_cols if c not in base_features]
             
-            # 建立一個字典來收集使用者輸入的化學品重量
             chem_inputs = {}
             selected_count = 0
             
-            # 找出尚未被分類的化學品
             categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
             uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
             
             # 繪製分類手風琴 (Expander)
             for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
-                # 只顯示存在於目前 CSV 中的化學品
                 valid_chems = [c for c in chems_in_cat if c in optional_chems]
                 if valid_chems:
                     with st.expander(cat_name):
@@ -190,26 +187,72 @@ with tab2:
 
         with c4:
             st.markdown("### 🤖 執行運算")
-            if st.button("🚀 執行 AI 推測", use_container_width=True, type="primary"):
-                if selected_count <= 10:
-                    input_data = {col: 0.0 for col in st.session_state.feature_cols}
-                    input_data['temp'], input_data['region'] = temp, region
-                    input_data['H2O_weight'], input_data['H3PO4_weight'], input_data['H2O2_weight'] = h2o, h3po4, h2o2
-                    for chem, val in chem_inputs.items():
-                        input_data[chem] = val
-                        
-                    input_df = pd.DataFrame([input_data])
-                    pred_snag = st.session_state.model_snag.predict(input_df)[0]
-                    pred_cu_ni = st.session_state.model_cu_ni.predict(input_df)[0]
+            # 新增：列出相同配方按鈕
+            btn_find_history = st.button("🔍 列出相同添加配方", use_container_width=True)
+            # 原有：AI推測按鈕
+            btn_predict = st.button("🚀 執行 AI 推測", use_container_width=True, type="primary")
+
+        # ==========================================
+        # 下方全寬度顯示區：歷史配方查詢結果
+        # ==========================================
+        if btn_find_history:
+            st.markdown("#### 📚 歷史相同添加物配方清單")
+            selected_chems = list(chem_inputs.keys())
+            unselected_chems = [c for c in optional_chems if c not in selected_chems]
+            
+            # 建立篩選條件 (Mask)
+            mask = pd.Series(True, index=st.session_state.df.index)
+            
+            # 條件一：勾選的添加物必須 > 0
+            for c in selected_chems:
+                if c in st.session_state.df.columns:
+                    mask = mask & (st.session_state.df[c] > 0)
                     
-                    st.success("推測完成！")
-                    st.metric("預測 Snag Cu (um)", f"{pred_snag:.3f}")
-                    st.metric("預測 Cu Ni (um)", f"{pred_cu_ni:.3f}")
+            # 條件二：未勾選的添加物必須是 0 或空白 (嚴格匹配)
+            for c in unselected_chems:
+                if c in st.session_state.df.columns:
+                    mask = mask & ((st.session_state.df[c] == 0) | (st.session_state.df[c].isna()))
+                    
+            matched_df = st.session_state.df[mask]
+            
+            if matched_df.empty:
+                st.info("💡 資料庫中目前沒有『完全相同添加物組合』的歷史配方。這將是一組全新的嘗試！")
+            else:
+                st.success(f"✅ 找到 {len(matched_df)} 筆相同的歷史配方！")
+                
+                # 整理要顯示在畫面上的欄位 (隱藏整排都是 0 的未選化學品，畫面比較乾淨)
+                display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + selected_chems + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                # 確保欄位存在於資料庫中
+                display_cols = [c for c in display_cols if c in matched_df.columns]
+                
+                # 顯示表格
+                st.dataframe(matched_df[display_cols], use_container_width=True)
+                
+        # ==========================================
+        # 下方全寬度顯示區：AI 推測結果
+        # ==========================================
+        if btn_predict:
+            if selected_count <= 10:
+                input_data = {col: 0.0 for col in st.session_state.feature_cols}
+                input_data['temp'], input_data['region'] = temp, region
+                input_data['H2O_weight'], input_data['H3PO4_weight'], input_data['H2O2_weight'] = h2o, h3po4, h2o2
+                for chem, val in chem_inputs.items():
+                    input_data[chem] = val
+                    
+                input_df = pd.DataFrame([input_data])
+                pred_snag = st.session_state.model_snag.predict(input_df)[0]
+                pred_cu_ni = st.session_state.model_cu_ni.predict(input_df)[0]
+                
+                st.success("推測完成！")
+                # 使用 column 來排版預測結果
+                res_c1, res_c2, res_c3 = st.columns([1, 1, 2])
+                res_c1.metric("預測 Snag Cu (um)", f"{pred_snag:.3f}")
+                res_c2.metric("預測 Cu Ni (um)", f"{pred_cu_ni:.3f}")
 
         st.divider()
         
         # 實驗結果回寫區
-        with st.expander("📝 將真實實驗結果寫入資料庫 (點擊展開)", expanded=False):
+        with st.expander("📝 將真實實驗結果寫入資料庫 (做完實驗後填寫)", expanded=False):
             rc1, rc2, rc3 = st.columns(3)
             real_snag = rc1.number_input("真實 Snag Cu", value=0.0, step=0.01)
             real_cu_ni = rc2.number_input("真實 Cu Ni", value=0.0, step=0.01)
