@@ -18,19 +18,51 @@ TARGET_COLS = ['snag_cu_undercut_um', 'cu_ni_undercut_um']
 # 💡 【重要】在此處定義您的化學品分類！
 # 請確保這裡的名稱與 CSV 檔案中的表頭完全一致（包含 _weight 字眼）
 CHEMICAL_CATEGORIES = {
-    "🛑 抑制劑 (Inhibitors)": [
-        "1,2,4-三氮唑_weight", "5-甲基-1H-苯並三唑_weight", "BTA_weight", 
-        "1H-1,2,3-三氮唑_weight", "5-ATZ_weight", "5-氯苯並三氮唑_weight"
+    "🧪 酸類 (Acids)": [
+        "H2SO4_weight", "HAc_weight", "MSA_weight", "PSA_weight", "HEDP_weight", 
+        "ATMP_weight", "檸檬酸_weight", "酒石酸_weight", "DL-蘋果酸_weight", 
+        "氨基磺酸_weight", "對胺基苯磺酸_weight", "5-磺基水楊酸二水合物_weight", 
+        "60%HEDP_weight", "1%的對胺基苯磺酸水溶液_weight"
     ],
-    "🧬 聚合物與表面活性劑 (Polymers/Surfactants)": [
-        "0.1%之PVP#3500水溶液_weight", "0.1%的聚丙烯醯胺水溶液_weight",
-        "PEG #8000_weight", "500ppmPVP_weight", "PVP #3500_weight"
+    "🔥 氧化劑 (Oxidizers)": [
+        "Fe2(SO4)3_weight", "FeCl3_weight"
     ],
-    "⚖️ pH與酸鹼調節 (pH Adjusters)": [
-        "45%KOH_weight", "H2SO4_weight", "DGA_weight"
+    "💧 溶劑與稀釋劑 (Solvents & Diluents)": [
+        "DI_weight", "EG_weight", "EtOH_weight", "PM_weight", 
+        "BCS_weight", "DGA_weight", "二乙二醇甲乙醚_weight"
     ],
-    "🔄 助劑與其他有機物 (Promoters/Organics)": [
-        "2,3,5-三甲基吡嗪_weight", "2-甲基吡嗪_weight", "ATMP_weight"
+    "🛡️ 腐蝕抑制劑 (Corrosion Inhibitors)": [
+        "BTA_weight", "1,2,4-三氮唑_weight", "1H-1,2,3-三氮唑_weight", 
+        "5-甲基-1H-苯並三唑_weight", "5-氯苯並三氮唑_weight", "苯並咪唑_weight", 
+        "1-甲基-1H-苯並咪唑_weight", "2-甲基苯並咪唑_weight", "咪唑_weight", 
+        "1-甲基咪唑_weight", "2-丙基咪唑_weight", "吡唑_weight", "5-ATZ_weight", 
+        "氨基-1,2,4-三氮唑_weight", "三苯基氯化四氮唑_weight", "四氮唑紫_weight", 
+        "抑制劑_weight"
+    ],
+    "⬡ 吡嗪/吡喃/雜環類 (Pyrazines/Heterocycles)": [
+        "吡嗪_weight", "2-甲基吡嗪_weight", "2,3,5-三甲基吡嗪_weight", 
+        "2-乙基-3-甲基吡嗪_weight", "2,4-二甲基吡嗪_weight", "2-氯吡嗪_weight", 
+        "2,3-二氯吡嗪_weight", "2,6-二氯吡嗪_weight", "2,3,5-三氯吡嗪_weight", 
+        "2,3,5-三甲基吡喃_weight", "2,6-二氯吡喃_weight", "哌嗪_weight", 
+        "2-吡咯烷酮_weight", "2-丁乙基 2-吡咯烷酮_weight", "羥乙基吡咯烷酮_weight"
+    ],
+    "🧬 聚合物與界面活性劑 (Polymers & Surfactants)": [
+        "PEG #200_weight", "PEG #2000_weight", "PEG #8000_weight", 
+        "PVP #3500_weight", "PVP #10000_weight", "PVP #58000_weight", 
+        "PVA_weight", "PPG #400_weight", "PEI_weight", "SLS_weight", 
+        "Tween 20_weight", "PASP_weight", "40%PASP-Na_weight", 
+        "聚丙烯醯胺_weight", "聚萘甲醛磺酸鈉_weight", "羥乙基纖維素_weight", 
+        "明膠_weight", "Cadisper-196B_weight", "YLE015_weight", 
+        "新日化 2-EHS_weight", "新日化 OS-40_weight", 
+        "台界化學 CPB-K_weight", "台界化學 TDE-9_weight",
+        "0.1%之PVP#3500水溶液_weight", "0.1%的聚丙烯醯胺水溶液_weight"
+    ],
+    "⚖️ 鹼類與 pH 調節劑 (Bases/pH Adjusters)": [
+        "45%KOH_weight", "TEA_weight", "正丁胺_weight"
+    ],
+    "🧩 氨基酸與其他添加劑 (Others)": [
+        "L-精氨酸_weight", "甘胺酸_weight", "半胱胺酸_weight", 
+        "NaCl_weight", "PB_weight", "60%DEHP_weight", "Inhibitor J_weight"
     ]
 }
 
