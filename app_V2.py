@@ -268,8 +268,8 @@ with tab2:
                 
                 st.divider()
 
-                # 4. 歷史配方查詢 (擴大範圍：容許最多多加 1 種添加物)
-                st.markdown("#### 📚 歷史相似配方清單 (完全相同，或僅多加1種成分)")
+               # 4. 歷史配方查詢 (擴大範圍：容許最多多加 1 種添加物)
+                st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
                 selected_chems = list(chem_inputs.keys())
                 unselected_chems = [c for c in optional_chems if c not in selected_chems]
                 
@@ -281,31 +281,49 @@ with tab2:
                         
                 # 條件二：使用者未勾選的添加物中，最多只能有 1 種大於 0
                 valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
-                # 計算每筆資料中，有幾個未勾選的化學品是大於 0 的
                 extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
-                # 限制額外的添加物數量 <= 1
                 mask_extra = extra_additive_count <= 1
                 
-                # 合併兩個條件過濾資料庫
-                matched_df = st.session_state.df[mask_selected & mask_extra]
+                # 合併兩個條件過濾資料庫 (使用 copy 避免警告)
+                matched_df = st.session_state.df[mask_selected & mask_extra].copy()
                 
                 if matched_df.empty:
                     st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試，請參考上方的 AI 預測！")
                 else:
                     st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
                     
-                    # 決定要顯示的欄位：找出這些被篩選出來的配方中，有哪些添加物是 > 0 的
-                    # 這樣才能在畫面上清楚看到那「多出來的1種」到底加了什麼
+                    # 紀錄這筆配方到底是「完全相同 (0)」還是「多加一種 (1)」，供後續上色使用
+                    matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
+                    
+                    # 決定要顯示的欄位：包含多出來的那 1 種化學品
                     cols_to_show = set(selected_chems)
                     for c in valid_unselected:
-                        if (matched_df[c] > 0).any():  # 只要該欄位在過濾後的資料中有任何大於0的值，就顯示
+                        if (matched_df[c] > 0).any():  
                             cols_to_show.add(c)
                             
-                    display_cols = ['item', 'date_folder', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                    # ✅ 需求修改：新增 'chemical_formula' 欄位，供人類閱讀
+                    display_cols = ['item', 'date_folder', 'chemical_formula', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
                     # 確保要顯示的欄位真的存在於 DataFrame 中
                     display_cols = [c for c in display_cols if c in matched_df.columns]
                     
-                    st.dataframe(matched_df[display_cols], use_container_width=True)
+                    df_to_display = matched_df[display_cols]
+                    
+                    # ✅ 需求修改：建立上色函式 (Pandas Styler)
+                    def highlight_identical(row):
+                        # 透過 index 去 matched_df 抓取剛才計算的 extra_count
+                        is_identical = matched_df.loc[row.name, 'extra_count'] == 0
+                        if is_identical:
+                            # 完全相同：使用 Streamlit 官方的高亮紅色
+                            return ['color: #ff4b4b'] * len(row)
+                        else:
+                            # 多加一種：維持預設顏色 (不強制標黑，以防深色模式看不見)
+                            return [''] * len(row)
+
+                    # 套用樣式設定
+                    styled_df = df_to_display.style.apply(highlight_identical, axis=1)
+                    
+                    # 顯示帶有顏色的表格
+                    st.dataframe(styled_df, use_container_width=True)
 
         st.divider()
         
