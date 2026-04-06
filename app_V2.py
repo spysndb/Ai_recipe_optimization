@@ -354,7 +354,7 @@ with tab2:
                 st.success("✅ 資料已新增！模型已吸收新經驗，變得更聰明了。")
 
 # ------------------------------------------
-# 分頁三：逆向最佳配方探索 (指定原料找比例)
+# 分頁三：逆向最佳配方探索 (全自訂原料組合)
 # ------------------------------------------
 with tab3:
     st.header("🎯 逆向尋找最佳配方 (XGBoost 萬次模擬引擎)")
@@ -363,7 +363,7 @@ with tab3:
     else:
         st.write("設定您的目標與【欲使用的原料】，AI 會在背景生成 10,000 組不同重量的組合，並找出最接近目標的黃金比例。")
         
-        # 1. 目標設定區 (移除密疏區選項)
+        # 1. 目標設定區
         st.markdown("#### 1. 設定預測目標")
         tcol1, tcol2 = st.columns(2)
         target_snag = tcol1.number_input("🎯 目標 Snag Cu (um)", value=0.100, step=0.01, format="%.3f")
@@ -371,17 +371,31 @@ with tab3:
         
         st.divider()
         
-        # 2. 原料勾選區 (同分頁二分類，但改為並排顯示節省空間)
+        # 2. 原料勾選區
         st.markdown("#### 2. 勾選欲使用的配方原料")
-        st.caption("H2O、H3PO4、H2O2 為必備基底。請勾選您想加入的添加物，AI 將自動尋找最佳的重量比例。")
+        st.caption("您可以自由勾選欲使用的基底與添加物。AI 會根據您勾選的項目，尋找最佳的重量比例。")
         
-        optional_chems = [c for c in st.session_state.feature_cols if c not in ['temp', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight']]
+        tab3_selected_bases = []
+        tab3_selected_chems = []
+        
+        # --- 新增：核心基底獨立分類 (預設打勾) ---
+        base_chems = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight']
+        with st.expander("💧 核心基底 (預設使用)", expanded=True):
+            b_col1, b_col2, b_col3 = st.columns(3)
+            # 使用 value=True 讓它們預設被勾選
+            if b_col1.checkbox("H2O", value=True, key="t3_H2O"):
+                tab3_selected_bases.append('H2O_weight')
+            if b_col2.checkbox("H3PO4", value=True, key="t3_H3PO4"):
+                tab3_selected_bases.append('H3PO4_weight')
+            if b_col3.checkbox("H2O2", value=True, key="t3_H2O2"):
+                tab3_selected_bases.append('H2O2_weight')
+
+        # --- 原有添加物分類 ---
+        optional_chems = [c for c in st.session_state.feature_cols if c not in ['temp', 'region'] + base_chems]
         categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
         uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
         
-        tab3_selected_chems = []
-        
-        # 使用 4 欄來排版分類手風琴，避免畫面太長
+        # 使用 4 欄並排顯示分類
         cat_cols = st.columns(4)
         col_idx = 0
         
@@ -390,7 +404,6 @@ with tab3:
             if valid_chems:
                 with cat_cols[col_idx % 4].expander(cat_name):
                     for chem in valid_chems:
-                        # 加上 t3_ 前綴避免與分頁二的 checkbox 衝突
                         if st.checkbox(chem.replace('_weight', ''), key=f"t3_{chem}"):
                             tab3_selected_chems.append(chem)
                 col_idx += 1
@@ -405,93 +418,108 @@ with tab3:
         
         # 3. 執行探索
         if st.button("🔍 開始 10,000 次平行宇宙模擬探索", type="primary", use_container_width=True):
-            with st.spinner("AI 正在為您勾選的原料測試 10,000 種重量組合，請稍候..."):
-                N_SIMULATIONS = 10000
-                
-                # 建立密區與疏區兩個模擬環境
-                sim_data_1 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
-                sim_data_0 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
-                
-                # 背景設定合理探索範圍 (H2O:40~90, 兩酸:1~25)
-                h2o_w = np.random.uniform(40.0, 90.0, N_SIMULATIONS)
-                h3po4_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS)
-                h2o2_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS)
-                
-                for sim_data in [sim_data_1, sim_data_0]:
-                    sim_data['temp'] = np.full(N_SIMULATIONS, 25.0)
-                    sim_data['H2O_weight'] = h2o_w
-                    sim_data['H3PO4_weight'] = h3po4_w
-                    sim_data['H2O2_weight'] = h2o2_w
+            # 防呆：確保使用者至少有勾選一種原料
+            if len(tab3_selected_bases) + len(tab3_selected_chems) == 0:
+                st.warning("⚠️ 請至少勾選一種原料（基底或添加物），AI 才有辦法調配配方！")
+            else:
+                with st.spinner("AI 正在為您勾選的原料測試 10,000 種重量組合，請稍候..."):
+                    N_SIMULATIONS = 10000
                     
-                sim_data_1['region'] = np.full(N_SIMULATIONS, 1) # 密區
-                sim_data_0['region'] = np.full(N_SIMULATIONS, 0) # 疏區
-                
-                # 為使用者勾選的添加物生成隨機重量 (範圍 0.1 ~ 8.0)
-                for chem in tab3_selected_chems:
-                    rand_w = np.random.uniform(0.1, 8.0, N_SIMULATIONS)
-                    sim_data_1[chem] = rand_w
-                    sim_data_0[chem] = rand_w
+                    sim_data_1 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
+                    sim_data_0 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
                     
-                df_1 = pd.DataFrame(sim_data_1)
-                df_0 = pd.DataFrame(sim_data_0)
-                
-                # 採用 XGBoost 分別預測密區與疏區的結果
-                pred_snag_1 = st.session_state.models['xgb_snag'].predict(df_1)
-                pred_cuni_1 = st.session_state.models['xgb_cu_ni'].predict(df_1)
-                
-                pred_snag_0 = st.session_state.models['xgb_snag'].predict(df_0)
-                pred_cuni_0 = st.session_state.models['xgb_cu_ni'].predict(df_0)
-                
-                # 綜合誤差計算：找出「在密區和疏區都能最接近目標」的配方
-                error_1 = np.abs(pred_snag_1 - target_snag) + np.abs(pred_cuni_1 - target_cu_ni)
-                error_0 = np.abs(pred_snag_0 - target_snag) + np.abs(pred_cuni_0 - target_cu_ni)
-                total_error = error_1 + error_0
-                
-                # 將結果整理出來
-                results_df = pd.DataFrame({
-                    'error': total_error,
-                    'H2O_weight': h2o_w,
-                    'H3PO4_weight': h3po4_w,
-                    'H2O2_weight': h2o2_w,
-                    'pred_snag_1': pred_snag_1, 'pred_cuni_1': pred_cuni_1,
-                    'pred_snag_0': pred_snag_0, 'pred_cuni_0': pred_cuni_0
-                })
-                # 把添加物重量也存起來
-                for chem in tab3_selected_chems:
-                    results_df[chem] = df_1[chem]
+                    # 環境設定
+                    for sim_data in [sim_data_1, sim_data_0]:
+                        sim_data['temp'] = np.full(N_SIMULATIONS, 25.0)
+                    sim_data_1['region'] = np.full(N_SIMULATIONS, 1) # 密區
+                    sim_data_0['region'] = np.full(N_SIMULATIONS, 0) # 疏區
                     
-                # 取出誤差最小的 Top 3
-                top3 = results_df.sort_values('error').head(3)
+                    # --- 動態處理基底的隨機重量 ---
+                    # 有打勾才給亂數探索，沒打勾就是 0
+                    h2o_w = np.random.uniform(40.0, 90.0, N_SIMULATIONS) if 'H2O_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
+                    h3po4_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS) if 'H3PO4_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
+                    h2o2_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS) if 'H2O2_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
+                    
+                    for sim_data in [sim_data_1, sim_data_0]:
+                        sim_data['H2O_weight'] = h2o_w
+                        sim_data['H3PO4_weight'] = h3po4_w
+                        sim_data['H2O2_weight'] = h2o2_w
+                        
+                    # 為使用者勾選的添加物生成隨機重量 (範圍 0.1 ~ 8.0)
+                    for chem in tab3_selected_chems:
+                        rand_w = np.random.uniform(0.1, 8.0, N_SIMULATIONS)
+                        sim_data_1[chem] = rand_w
+                        sim_data_0[chem] = rand_w
+                        
+                    df_1 = pd.DataFrame(sim_data_1)
+                    df_0 = pd.DataFrame(sim_data_0)
+                    
+                    # XGBoost 預測
+                    pred_snag_1 = st.session_state.models['xgb_snag'].predict(df_1)
+                    pred_cuni_1 = st.session_state.models['xgb_cu_ni'].predict(df_1)
+                    
+                    pred_snag_0 = st.session_state.models['xgb_snag'].predict(df_0)
+                    pred_cuni_0 = st.session_state.models['xgb_cu_ni'].predict(df_0)
+                    
+                    # 綜合誤差計算
+                    error_1 = np.abs(pred_snag_1 - target_snag) + np.abs(pred_cuni_1 - target_cu_ni)
+                    error_0 = np.abs(pred_snag_0 - target_snag) + np.abs(pred_cuni_0 - target_cu_ni)
+                    total_error = error_1 + error_0
+                    
+                    # 整理輸出用的 DataFrame，只保留有被選到的欄位
+                    results_dict = {
+                        'error': total_error,
+                        'pred_snag_1': pred_snag_1, 'pred_cuni_1': pred_cuni_1,
+                        'pred_snag_0': pred_snag_0, 'pred_cuni_0': pred_cuni_0
+                    }
+                    if 'H2O_weight' in tab3_selected_bases: results_dict['H2O_weight'] = h2o_w
+                    if 'H3PO4_weight' in tab3_selected_bases: results_dict['H3PO4_weight'] = h3po4_w
+                    if 'H2O2_weight' in tab3_selected_bases: results_dict['H2O2_weight'] = h2o2_w
+                    
+                    for chem in tab3_selected_chems:
+                        results_dict[chem] = df_1[chem]
+                        
+                    results_df = pd.DataFrame(results_dict)
+                    
+                    # 取出綜合誤差最小的 Top 3
+                    top3 = results_df.sort_values('error').head(3)
+                    
+                st.success("🎉 探索完成！以下是 AI 在萬次模擬中，為您找出綜合表現最佳的 3 組比例：")
                 
-            st.success("🎉 探索完成！以下是 AI 在萬次模擬中，為您找出綜合表現最佳的 3 組比例：")
-            
-            # 顯示結果
-            for idx, row in top3.reset_index(drop=True).iterrows():
-                st.markdown(f"### 🏆 推薦配方 Top {idx + 1}")
-                
-                # 並排顯示密區與疏區預測結果
-                res_c1, res_c2 = st.columns(2)
-                with res_c1:
-                    st.info("**【密區 (1)】預測結果**")
-                    st.metric("Snag Cu", f"{row['pred_snag_1']:.3f} um", delta=f"{row['pred_snag_1'] - target_snag:.3f}", delta_color="inverse")
-                    st.metric("Cu Ni", f"{row['pred_cuni_1']:.3f} um", delta=f"{row['pred_cuni_1'] - target_cu_ni:.3f}", delta_color="inverse")
-                with res_c2:
-                    st.success("**【疏區 (0)】預測結果**")
-                    st.metric("Snag Cu", f"{row['pred_snag_0']:.3f} um", delta=f"{row['pred_snag_0'] - target_snag:.3f}", delta_color="inverse")
-                    st.metric("Cu Ni", f"{row['pred_cuni_0']:.3f} um", delta=f"{row['pred_cuni_0'] - target_cu_ni:.3f}", delta_color="inverse")
-                
-                # 產出人類可讀的配方字串
-                formula_parts = ["H2O", "H3PO4", "H2O2"]
-                weight_parts = [f"{row['H2O_weight']:.2f}", f"{row['H3PO4_weight']:.2f}", f"{row['H2O2_weight']:.2f}"]
-                
-                for chem in tab3_selected_chems:
-                    formula_parts.append(chem.replace('_weight', ''))
-                    weight_parts.append(f"{row[chem]:.2f}")
-                
-                formula_str = "+".join(formula_parts)
-                weight_str = "+".join(weight_parts)
-                
-                # 提供程式碼區塊供使用者直接複製
-                st.code(f"chemical_formula: {formula_str}\nchemical_weights: {weight_str}", language="text")
-                st.divider()
-
+                # 顯示結果
+                for idx, row in top3.reset_index(drop=True).iterrows():
+                    st.markdown(f"### 🏆 推薦配方 Top {idx + 1}")
+                    
+                    res_c1, res_c2 = st.columns(2)
+                    with res_c1:
+                        st.info("**【密區 (1)】預測結果**")
+                        st.metric("Snag Cu", f"{row['pred_snag_1']:.3f} um", delta=f"{row['pred_snag_1'] - target_snag:.3f}", delta_color="inverse")
+                        st.metric("Cu Ni", f"{row['pred_cuni_1']:.3f} um", delta=f"{row['pred_cuni_1'] - target_cu_ni:.3f}", delta_color="inverse")
+                    with res_c2:
+                        st.success("**【疏區 (0)】預測結果**")
+                        st.metric("Snag Cu", f"{row['pred_snag_0']:.3f} um", delta=f"{row['pred_snag_0'] - target_snag:.3f}", delta_color="inverse")
+                        st.metric("Cu Ni", f"{row['pred_cuni_0']:.3f} um", delta=f"{row['pred_cuni_0'] - target_cu_ni:.3f}", delta_color="inverse")
+                    
+                    # 動態產出配方字串 (只包含真正打勾的項目)
+                    formula_parts = []
+                    weight_parts = []
+                    
+                    if 'H2O_weight' in tab3_selected_bases:
+                        formula_parts.append("H2O")
+                        weight_parts.append(f"{row['H2O_weight']:.2f}")
+                    if 'H3PO4_weight' in tab3_selected_bases:
+                        formula_parts.append("H3PO4")
+                        weight_parts.append(f"{row['H3PO4_weight']:.2f}")
+                    if 'H2O2_weight' in tab3_selected_bases:
+                        formula_parts.append("H2O2")
+                        weight_parts.append(f"{row['H2O2_weight']:.2f}")
+                        
+                    for chem in tab3_selected_chems:
+                        formula_parts.append(chem.replace('_weight', ''))
+                        weight_parts.append(f"{row[chem]:.2f}")
+                    
+                    formula_str = "+".join(formula_parts)
+                    weight_str = "+".join(weight_parts)
+                    
+                    st.code(f"chemical_formula: {formula_str}\nchemical_weights: {weight_str}", language="text")
+                    st.divider()
