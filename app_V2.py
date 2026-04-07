@@ -12,7 +12,7 @@ import io
 # 1. 頁面基本設定與分類字典
 # ==========================================
 st.set_page_config(page_title="蝕刻配方推測系統", page_icon="🧪", layout="wide")
-st.title("🧪 智慧化學蝕刻配方推測系統 (wt% 百分比升級版)")
+st.title("🧪 智慧化學蝕刻配方推測系統 (wt% 濃度百分比)")
 
 # 定義不進入特徵運算的欄位與目標欄位
 NON_FEATURE_COLS = ['date_folder', 'item', 'chemical_formula', 'chemical_weights', 'result', 'etch_time_value_sec', 'etch_time_note']
