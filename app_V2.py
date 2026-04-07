@@ -149,7 +149,7 @@ with st.sidebar:
 # ==========================================
 # 4. 主畫面分頁設定
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["📂 分頁一：資料載入", "🧪 分頁二：正向推測與紀錄", "🎯 分頁三：逆向最佳配方探索"])
+tab1, tab2, tab3, tab4 = st.tabs(["📂 分頁一：資料載入", "🧪 分頁二：正向配方推測", "🎯 分頁三：逆向最佳配方探索", "📝 分頁四：實驗結果登錄"])
 
 # ------------------------------------------
 # 分頁一：資料載入
@@ -301,27 +301,6 @@ with tab2:
 
         st.divider()
         
-        with st.expander("📝 將真實實驗結果寫入資料庫 (做完實驗後填寫)", expanded=False):
-            rc1, rc2, rc3 = st.columns(3)
-            real_snag = rc1.number_input("真實 Snag Cu", value=0.0, step=0.01)
-            real_cu_ni = rc2.number_input("真實 Cu Ni", value=0.0, step=0.01)
-            real_time = rc3.number_input("蝕刻時間 (sec)", value=0, step=1)
-            real_result = st.text_area("實驗備註 (Result)", placeholder="描述蝕刻狀況…")
-            
-            if st.button("💾 儲存真實數據並重訓三大模型"):
-                new_row = {col: 0.0 for col in st.session_state.df.columns}
-                new_row['temp'], new_row['region'] = temp, region
-                new_row['H2O_weight'], new_row['H3PO4_weight'], new_row['H2O2_weight'] = h2o, h3po4, h2o2
-                for chem, val in chem_inputs.items():
-                    new_row[chem] = val
-                    
-                new_row['snag_cu_undercut_um'], new_row['cu_ni_undercut_um'] = real_snag, real_cu_ni
-                new_row['etch_time_value_sec'], new_row['result'] = real_time, real_result
-                new_row['date_folder'], new_row['item'] = datetime.now().strftime("%Y%m%d"), "NEW"
-                
-                st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
-                train_models(st.session_state.df)
-                st.success("✅ 資料已新增！模型已吸收新經驗，變得更聰明了。")
 
 # ------------------------------------------
 # 分頁三：逆向最佳配方探索
@@ -466,3 +445,97 @@ with tab3:
                     
                     st.code(f"chemical_formula: {formula_str}\nchemical_weights: {weight_str}", language="text")
                     st.divider()
+# ------------------------------------------
+# 分頁四：實驗結果登錄
+# ------------------------------------------
+with tab4:
+    st.header("📝 登錄真實實驗結果")
+    if st.session_state.df is None:
+        st.info("請先至「資料載入」分頁上傳 CSV 檔案。")
+    else:
+        st.write("不論您是使用「正向推測」或「逆向探索」，完成實際實驗後，請在此處將最終配方與真實數據寫入資料庫。")
+        
+        # 使用 3 欄並排，左邊配方，右邊結果
+        t4_c1, t4_c2, t4_c3 = st.columns([1, 1, 1])
+        
+        with t4_c1:
+            st.markdown("### 🌡️ 1. 環境與基底")
+            t4_temp = st.number_input("溫度 (temp)", value=25.0, step=1.0, key="t4_temp")
+            t4_region = st.selectbox("區域 (region)", options=[1, 0], format_func=lambda x: "密區 (1)" if x == 1 else "疏區 (0)", key="t4_region")
+            st.divider()
+            t4_h2o = st.number_input("H2O 重量", value=60.0, step=1.0, key="t4_h2o")
+            t4_h3po4 = st.number_input("H3PO4 重量", value=10.0, step=1.0, key="t4_h3po4")
+            t4_h2o2 = st.number_input("H2O2 重量", value=15.0, step=1.0, key="t4_h2o2")
+
+        with t4_c2:
+            st.markdown("### 🧪 2. 實際添加物")
+            base_features = ['temp', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight']
+            optional_chems = [c for c in st.session_state.feature_cols if c not in base_features]
+            categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
+            uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
+            
+            t4_chem_inputs = {}
+            t4_selected_count = 0
+            
+            # 使用手風琴選單讓操作者勾選實際用到的添加物
+            for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
+                valid_chems = [c for c in chems_in_cat if c in optional_chems]
+                if valid_chems:
+                    with st.expander(cat_name):
+                        for chem in valid_chems:
+                            if st.checkbox(chem.replace('_weight', ''), key=f"t4_chk_{chem}"):
+                                t4_selected_count += 1
+                                t4_chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"t4_num_{chem}")
+            
+            if uncategorized_chems:
+                with st.expander("📦 其他未分類添加物"):
+                    for chem in uncategorized_chems:
+                        if st.checkbox(chem.replace('_weight', ''), key=f"t4_chk_{chem}"):
+                            t4_selected_count += 1
+                            t4_chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"t4_num_{chem}")
+                            
+            if t4_selected_count > 10:
+                st.error("⚠️ 選擇了超過 10 種添加物，請確認是否輸入錯誤。")
+
+        with t4_c3:
+            st.markdown("### 🔬 3. 真實實驗結果")
+            t4_real_snag = st.number_input("真實 Snag Cu (um)", value=0.0, step=0.01, key="t4_snag")
+            t4_real_cu_ni = st.number_input("真實 Cu Ni (um)", value=0.0, step=0.01, key="t4_cuni")
+            t4_real_time = st.number_input("蝕刻時間 (sec)", value=0, step=1, key="t4_time")
+            t4_real_result = st.text_area("實驗備註 (Result)", placeholder="吃得很乾淨、藥水有點濁...", height=110, key="t4_res")
+            
+            st.divider()
+            if st.button("💾 寫入資料並重訓 AI 模型", use_container_width=True, type="primary"):
+                if t4_selected_count <= 10:
+                    # 建立新資料列
+                    new_row = {col: 0.0 for col in st.session_state.df.columns}
+                    new_row['temp'], new_row['region'] = t4_temp, t4_region
+                    new_row['H2O_weight'], new_row['H3PO4_weight'], new_row['H2O2_weight'] = t4_h2o, t4_h3po4, t4_h2o2
+                    
+                    # 準備用來寫入字串的陣列
+                    formula_parts = ["H2O", "H3PO4", "H2O2"]
+                    weight_parts = [f"{t4_h2o:.2f}", f"{t4_h3po4:.2f}", f"{t4_h2o2:.2f}"]
+                    
+                    # 填寫添加物重量與字串
+                    for chem, val in t4_chem_inputs.items():
+                        new_row[chem] = val
+                        formula_parts.append(chem.replace('_weight', ''))
+                        weight_parts.append(f"{val:.2f}")
+                        
+                    # 合成人類可讀的配方字串 (解決歷史紀錄空缺的問題)
+                    new_row['chemical_formula'] = "+".join(formula_parts)
+                    new_row['chemical_weights'] = "+".join(weight_parts)
+                        
+                    # 填寫實驗結果
+                    new_row['snag_cu_undercut_um'], new_row['cu_ni_undercut_um'] = t4_real_snag, t4_real_cu_ni
+                    new_row['etch_time_value_sec'], new_row['result'] = t4_real_time, t4_real_result
+                    new_row['date_folder'], new_row['item'] = datetime.now().strftime("%Y%m%d"), "NEW"
+                    
+                    # 將新資料寫入暫存資料庫
+                    st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
+                    
+                    # 呼叫重訓函式，讓 AI 吸收新知識
+                    train_models(st.session_state.df)
+                    
+                    st.success("✅ 資料已新增！模型已在背景吸收新經驗，變得更聰明了。")
+                    st.info("💡 提示：您可以直接回到前幾個分頁繼續預測。如果準備下班，請點擊左側邊欄的「📥 下載最新 CSV 備份」存檔。")
