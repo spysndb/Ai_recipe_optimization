@@ -306,7 +306,7 @@ with tab2:
             real_snag = rc1.number_input("真實 Snag Cu", value=0.0, step=0.01)
             real_cu_ni = rc2.number_input("真實 Cu Ni", value=0.0, step=0.01)
             real_time = rc3.number_input("蝕刻時間 (sec)", value=0, step=1)
-            real_result = st.text_area("實驗備註 (Result)", placeholder="吃得很乾淨...")
+            real_result = st.text_area("實驗備註 (Result)", placeholder="描述蝕刻狀況…")
             
             if st.button("💾 儲存真實數據並重訓三大模型"):
                 new_row = {col: 0.0 for col in st.session_state.df.columns}
