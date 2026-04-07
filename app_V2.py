@@ -502,7 +502,7 @@ with tab4:
             t4_real_snag = st.number_input("真實 Snag Cu (um)", value=0.0, step=0.01, key="t4_snag")
             t4_real_cu_ni = st.number_input("真實 Cu Ni (um)", value=0.0, step=0.01, key="t4_cuni")
             t4_real_time = st.number_input("蝕刻時間 (sec)", value=0, step=1, key="t4_time")
-            t4_real_result = st.text_area("實驗備註 (Result)", placeholder="吃得很乾淨、藥水有點濁...", height=110, key="t4_res")
+            t4_real_result = st.text_area("實驗備註 (Result)", placeholder="請量化數據，吃得很乾淨100％、藥水有點濁...", height=110, key="t4_res")
             
             st.divider()
             if st.button("💾 寫入資料並重訓 AI 模型", use_container_width=True, type="primary"):
