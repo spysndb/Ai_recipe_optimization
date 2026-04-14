@@ -172,23 +172,22 @@ with tab1:
 # 分頁二：正向推測與紀錄
 # ------------------------------------------
 with tab2:
+    st.header("🧪 正向尋找最佳配方 (wt% 濃度百分比)")
     if st.session_state.df is None:
         st.info("請先至「資料載入」分頁上傳 CSV 檔案。")
     else:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         
         with c1:
-            st.markdown("### 🌡️ 基礎環境")
+            st.markdown("### 🌡️ 基礎環境與基底")
             temp = st.number_input("溫度 (temp)", value=25.0, step=1.0)
             region = st.selectbox("區域 (region)", options=[1, 0], format_func=lambda x: "密區 (1)" if x == 1 else "疏區 (0)")
-        
-        with c2:
-            st.markdown("### 💧 核心基底 (必填)")
+            st.divider()
             h2o = st.number_input("H2O 重量", value=60.0, step=1.0)
             h3po4 = st.number_input("H3PO4 重量", value=10.0, step=1.0)
             h2o2 = st.number_input("H2O2 重量", value=15.0, step=1.0)
 
-        with c3:
+        with c2:
             st.markdown("### 🧪 添加物選擇")
             st.caption("請勾選欲使用的添加物，並填寫重量 (最多 10 種)")
             
@@ -220,7 +219,7 @@ with tab2:
             if selected_count > 10:
                 st.error("⚠️ 選擇了超過 10 種添加物，請減少數量。")
 
-        with c4:
+        with c3:
             st.markdown("### 🤖 執行運算")
             btn_predict = st.button("🚀 執行多模型推測與歷史查詢", use_container_width=True, type="primary")
 
@@ -312,47 +311,47 @@ with tab3:
     else:
         st.write("設定您的目標與原料，AI 在尋找最佳解答後，將為您直接產出「總重剛好為 100 克」的完美比例配方！")
         
-        st.markdown("#### 1. 設定預測目標")
-        tcol1, tcol2 = st.columns(2)
-        target_snag = tcol1.number_input("🎯 目標 Snag Cu (um)", value=0.100, step=0.01, format="%.3f")
-        target_cu_ni = tcol2.number_input("🎯 目標 Cu Ni (um)", value=0.100, step=0.01, format="%.3f")
-        
-        st.divider()
-        st.markdown("#### 2. 勾選欲使用的配方原料")
-        
         tab3_selected_bases = []
         tab3_selected_chems = []
-        
         base_chems = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight']
-        with st.expander("💧 核心基底 (預設使用)", expanded=True):
-            b_col1, b_col2, b_col3 = st.columns(3)
-            if b_col1.checkbox("H2O", value=True, key="t3_H2O"): tab3_selected_bases.append('H2O_weight')
-            if b_col2.checkbox("H3PO4", value=True, key="t3_H3PO4"): tab3_selected_bases.append('H3PO4_weight')
-            if b_col3.checkbox("H2O2", value=True, key="t3_H2O2"): tab3_selected_bases.append('H2O2_weight')
-
-        optional_chems = [c for c in st.session_state.feature_cols if c not in ['temp', 'region'] + base_chems]
-        categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
-        uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
         
-        cat_cols = st.columns(4)
-        col_idx = 0
-        for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
-            valid_chems = [c for c in chems_in_cat if c in optional_chems]
-            if valid_chems:
-                with cat_cols[col_idx % 4].expander(cat_name):
-                    for chem in valid_chems:
+        t3_c1, t3_c2, t3_c3 = st.columns(3)
+        
+        with t3_c1:
+            st.markdown("### 🎯 目標")
+            target_snag = st.number_input("目標 Snag Cu (um)", value=0.100, step=0.01, format="%.3f")
+            target_cu_ni = st.number_input("目標 Cu Ni (um)", value=0.100, step=0.01, format="%.3f")
+            st.divider()
+            st.markdown("### 💧 基底")
+            if st.checkbox("H2O", value=True, key="t3_H2O"): tab3_selected_bases.append('H2O_weight')
+            if st.checkbox("H3PO4", value=True, key="t3_H3PO4"): tab3_selected_bases.append('H3PO4_weight')
+            if st.checkbox("H2O2", value=True, key="t3_H2O2"): tab3_selected_bases.append('H2O2_weight')
+
+        with t3_c2:
+            st.markdown("### 🧪 勾選配方原料")
+            optional_chems = [c for c in st.session_state.feature_cols if c not in ['temp', 'region'] + base_chems]
+            categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
+            uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
+            
+            for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
+                valid_chems = [c for c in chems_in_cat if c in optional_chems]
+                if valid_chems:
+                    with st.expander(cat_name):
+                        for chem in valid_chems:
+                            if st.checkbox(chem.replace('_weight', ''), key=f"t3_{chem}"):
+                                tab3_selected_chems.append(chem)
+                    
+            if uncategorized_chems:
+                with st.expander("📦 其他未分類添加物"):
+                    for chem in uncategorized_chems:
                         if st.checkbox(chem.replace('_weight', ''), key=f"t3_{chem}"):
                             tab3_selected_chems.append(chem)
-                col_idx += 1
-                
-        if uncategorized_chems:
-            with cat_cols[col_idx % 4].expander("📦 其他未分類添加物"):
-                for chem in uncategorized_chems:
-                    if st.checkbox(chem.replace('_weight', ''), key=f"t3_{chem}"):
-                        tab3_selected_chems.append(chem)
 
-        st.divider()
-        if st.button("🔍 開始 10,000 次平行宇宙模擬探索", type="primary", use_container_width=True):
+        with t3_c3:
+            st.markdown("### 🤖 執行運算")
+            btn_explore = st.button("🔍 開始 10,000 次平行宇宙模擬探索", type="primary", use_container_width=True)
+
+        if btn_explore:
             if len(tab3_selected_bases) + len(tab3_selected_chems) == 0:
                 st.warning("⚠️ 請至少勾選一種原料！")
             else:
