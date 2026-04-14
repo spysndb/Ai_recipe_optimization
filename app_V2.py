@@ -12,7 +12,7 @@ import io
 # 1. 頁面基本設定與分類字典
 # ==========================================
 st.set_page_config(page_title="蝕刻配方推測系統", page_icon="🧪", layout="wide")
-st.title("🧪 智慧化學蝕刻配方推測系統 (多模型版)")
+st.title("🧪 智慧化學蝕刻配方推測系統 (wt% 濃度百分比)")
 
 # 定義不進入特徵運算的欄位與目標欄位
 NON_FEATURE_COLS = ['date_folder', 'item', 'chemical_formula', 'chemical_weights', 'result', 'etch_time_value_sec', 'etch_time_note']
@@ -73,42 +73,55 @@ if "df" not in st.session_state:
     st.session_state.df = None
 if "feature_cols" not in st.session_state:
     st.session_state.feature_cols = []
-# 存放訓練好的模型與標準化工具
 if "models" not in st.session_state:
     st.session_state.models = {}
 if "scaler" not in st.session_state:
     st.session_state.scaler = None
+if "current_file_id" not in st.session_state:
+    st.session_state.current_file_id = None
 
 # ==========================================
-# 2. 核心函式定義：訓練三種模型
+# 2. 核心函式定義
 # ==========================================
+def convert_to_wt_pct(X_df, feature_cols):
+    """
+    【2-b 核心升級】：將原始重量轉換為重量百分比 (wt%)
+    排除 temp 與 region，僅將化學品重量相加作為分母。
+    """
+    chem_cols = [c for c in feature_cols if c not in ['temp', 'region']]
+    X_pct = X_df.copy()
+    
+    # 計算每一列的化學品總重 (取代 0 為 1 避免除以零錯誤)
+    total_weights = X_pct[chem_cols].sum(axis=1).replace(0, 1)
+    
+    # 將每一種化學品重量除以總重，再乘以 100 得到百分比
+    X_pct[chem_cols] = X_pct[chem_cols].div(total_weights, axis=0) * 100
+    return X_pct
+
 def train_models(df):
     feature_cols = [col for col in df.columns if col not in NON_FEATURE_COLS + TARGET_COLS]
     st.session_state.feature_cols = feature_cols
     
-    X = df[feature_cols].fillna(0)
+    X_raw = df[feature_cols].fillna(0)
     y_snag = df['snag_cu_undercut_um'].fillna(0)
     y_cu_ni = df['cu_ni_undercut_um'].fillna(0)
     
-    # 建立標準化工具 (給 Ridge 迴歸使用)
+    # 轉換為重量百分比供模型學習
+    X_pct = convert_to_wt_pct(X_raw, feature_cols)
+    
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    X_scaled = scaler.fit_transform(X_pct)
     st.session_state.scaler = scaler
     
-    # --- 1. 隨機森林 (保守派) ---
-    rf_snag = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y_snag)
-    rf_cu_ni = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y_cu_ni)
+    rf_snag = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_snag)
+    rf_cu_ni = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_cu_ni)
     
-    # --- 2. XGBoost (敏銳派) ---
-    xgb_snag = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X, y_snag)
-    xgb_cu_ni = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X, y_cu_ni)
+    xgb_snag = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_snag)
+    xgb_cu_ni = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_cu_ni)
     
-    # --- 3. 脊迴歸 Ridge (趨勢派) ---
-    # Ridge 迴歸需要輸入標準化後的資料
     ridge_snag = Ridge(alpha=1.0).fit(X_scaled, y_snag)
     ridge_cu_ni = Ridge(alpha=1.0).fit(X_scaled, y_cu_ni)
     
-    # 將所有模型存入 Session State
     st.session_state.models = {
         'rf_snag': rf_snag, 'rf_cu_ni': rf_cu_ni,
         'xgb_snag': xgb_snag, 'xgb_cu_ni': xgb_cu_ni,
@@ -126,7 +139,7 @@ with st.sidebar:
     st.header("系統狀態")
     if st.session_state.df is not None:
         st.success(f"✅ 資料庫已載入 ({len(st.session_state.df)} 筆)")
-        st.success("✅ 三大 AI 模型 (RF, XGB, Ridge) 訓練完成")
+        st.success("✅ 三大 AI 模型 (wt%版) 準備就緒")
         st.divider()
         csv_data = convert_df_to_csv(st.session_state.df)
         st.download_button("📥 下載最新 CSV 備份", data=csv_data, file_name=f"Etch_Recipe_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True)
@@ -136,30 +149,23 @@ with st.sidebar:
 # ==========================================
 # 4. 主畫面分頁設定
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["📂 分頁一：資料載入", "🧪 分頁二：正向推測與紀錄", "🎯 分頁三：逆向最佳配方探索"])
+tab1, tab2, tab3, tab4 = st.tabs(["📂 分頁一：資料載入", "🧪 分頁二：正向配方推測", "🎯 分頁三：逆向最佳配方探索", "📝 分頁四：實驗結果登錄"])
 
 # ------------------------------------------
 # 分頁一：資料載入
 # ------------------------------------------
 with tab1:
     uploaded_file = st.file_uploader("請上傳清洗後的寬表 CSV 檔案", type=["csv"])
-    
     if uploaded_file is not None:
-        # 建立一個檔案專屬標籤 (包含檔名與大小)，用來判斷是不是同一個檔案
         file_id = f"{uploaded_file.name}_{uploaded_file.size}"
-        
-        # 檢查：如果系統還沒讀過這個檔案，才執行訓練
         if st.session_state.get("current_file_id") != file_id:
-            with st.spinner("⏳ AI 正在大腦中建立三種化學模型 (RF, XGB, Ridge)，請稍候幾秒鐘..."):
+            with st.spinner("⏳ AI 正在將原始數據轉換為百分比並建立模型，請稍候..."):
                 df = pd.read_csv(uploaded_file)
                 st.session_state.df = df
                 train_models(df)
-                # 紀錄這個檔案已經訓練過了
                 st.session_state["current_file_id"] = file_id
-                
             st.success("✅ 資料讀取與多重模型訓練成功！您可以前往「正向推測」分頁。")
         else:
-            # 如果已經訓練過，直接顯示就緒，不浪費時間重訓
             st.success("✅ 資料庫與模型已在記憶體中準備就緒！您可以放心操作。")
 
 # ------------------------------------------
@@ -200,205 +206,136 @@ with tab2:
                 if valid_chems:
                     with st.expander(cat_name):
                         for chem in valid_chems:
-                            use_chem = st.checkbox(chem.replace('_weight', ''), key=f"chk_{chem}")
-                            if use_chem:
+                            if st.checkbox(chem.replace('_weight', ''), key=f"t2_{chem}"):
                                 selected_count += 1
                                 chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"num_{chem}")
             
             if uncategorized_chems:
                 with st.expander("📦 其他未分類添加物"):
                     for chem in uncategorized_chems:
-                        use_chem = st.checkbox(chem.replace('_weight', ''), key=f"chk_{chem}")
-                        if use_chem:
+                        if st.checkbox(chem.replace('_weight', ''), key=f"t2_{chem}"):
                             selected_count += 1
                             chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"num_{chem}")
             
             if selected_count > 10:
-                st.error(f"⚠️ 您目前選擇了 {selected_count} 種添加物，請減少至 10 種以內。")
+                st.error("⚠️ 選擇了超過 10 種添加物，請減少數量。")
 
         with c4:
             st.markdown("### 🤖 執行運算")
             btn_predict = st.button("🚀 執行多模型推測與歷史查詢", use_container_width=True, type="primary")
 
-        # ==========================================
-        # 執行推測與歷史查詢結果顯示
-        # ==========================================
-        if btn_predict:
-            if selected_count <= 10:
-                # 1. 準備輸入特徵
-                input_data = {col: 0.0 for col in st.session_state.feature_cols}
-                input_data['temp'], input_data['region'] = temp, region
-                input_data['H2O_weight'], input_data['H3PO4_weight'], input_data['H2O2_weight'] = h2o, h3po4, h2o2
-                for chem, val in chem_inputs.items():
-                    input_data[chem] = val
-                    
-                input_df = pd.DataFrame([input_data])
+        if btn_predict and selected_count <= 10:
+            input_data = {col: 0.0 for col in st.session_state.feature_cols}
+            input_data['temp'], input_data['region'] = temp, region
+            input_data['H2O_weight'], input_data['H3PO4_weight'], input_data['H2O2_weight'] = h2o, h3po4, h2o2
+            for chem, val in chem_inputs.items():
+                input_data[chem] = val
                 
-                # Ridge 迴歸需要標準化特徵
-                input_scaled = st.session_state.scaler.transform(input_df)
-                
-                # 2. 取得三種模型的預測結果
-                rf_snag_val = st.session_state.models['rf_snag'].predict(input_df)[0]
-                rf_cuni_val = st.session_state.models['rf_cu_ni'].predict(input_df)[0]
-                
-                xgb_snag_val = st.session_state.models['xgb_snag'].predict(input_df)[0]
-                xgb_cuni_val = st.session_state.models['xgb_cu_ni'].predict(input_df)[0]
-                
-                ridge_snag_val = st.session_state.models['ridge_snag'].predict(input_scaled)[0]
-                ridge_cuni_val = st.session_state.models['ridge_cu_ni'].predict(input_scaled)[0]
-                
-                # 3. 畫面顯示推測結果 (三欄並排)
-                st.markdown("### 📊 多模型預測結果比較")
-                res_col1, res_col2, res_col3 = st.columns(3)
-                
-                with res_col1:
-                    st.info("🌳 **隨機森林 (保守派)**\n\n參考相近歷史配方的平均表現，最為穩定保守。")
-                    st.metric("預測 Snag Cu (um)", f"{rf_snag_val:.3f}")
-                    st.metric("預測 Cu Ni (um)", f"{rf_cuni_val:.3f}")
-                    
-                with res_col2:
-                    st.warning("⚡ **XGBoost (敏銳派)**\n\n對添加物微小差異敏感，能捕捉複雜的化學反應交集。")
-                    st.metric("預測 Snag Cu (um)", f"{xgb_snag_val:.3f}")
-                    st.metric("預測 Cu Ni (um)", f"{xgb_cuni_val:.3f}")
-                    
-                with res_col3:
-                    st.success("📈 **脊迴歸 (趨勢派)**\n\n純數學趨勢外插，能預測出破歷史紀錄的高低數值。")
-                    st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
-                    st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
-                
-                st.divider()
+            input_raw = pd.DataFrame([input_data])
+            
+            # --- 轉成百分比再預測 ---
+            input_pct = convert_to_wt_pct(input_raw, st.session_state.feature_cols)
+            input_scaled = st.session_state.scaler.transform(input_pct)
+            
+            rf_snag_val = st.session_state.models['rf_snag'].predict(input_pct)[0]
+            rf_cuni_val = st.session_state.models['rf_cu_ni'].predict(input_pct)[0]
+            xgb_snag_val = st.session_state.models['xgb_snag'].predict(input_pct)[0]
+            xgb_cuni_val = st.session_state.models['xgb_cu_ni'].predict(input_pct)[0]
+            ridge_snag_val = st.session_state.models['ridge_snag'].predict(input_scaled)[0]
+            ridge_cuni_val = st.session_state.models['ridge_cu_ni'].predict(input_scaled)[0]
+            
+            st.markdown("### 📊 多模型預測結果比較")
+            res_col1, res_col2, res_col3 = st.columns(3)
+            with res_col1:
+                st.info("🌳 **隨機森林 (保守派)**")
+                st.metric("預測 Snag Cu (um)", f"{rf_snag_val:.3f}")
+                st.metric("預測 Cu Ni (um)", f"{rf_cuni_val:.3f}")
+            with res_col2:
+                st.warning("⚡ **XGBoost (敏銳派)**")
+                st.metric("預測 Snag Cu (um)", f"{xgb_snag_val:.3f}")
+                st.metric("預測 Cu Ni (um)", f"{xgb_cuni_val:.3f}")
+            with res_col3:
+                st.success("📈 **脊迴歸 (趨勢派)**")
+                st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
+                st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
+            
+            st.divider()
 
-               # 4. 歷史配方查詢 (擴大範圍：容許最多多加 1 種添加物)
-                st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
-                selected_chems = list(chem_inputs.keys())
-                unselected_chems = [c for c in optional_chems if c not in selected_chems]
+            # 歷史查詢 (保留原始重量的嚴格比對邏輯)
+            st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
+            selected_chems = list(chem_inputs.keys())
+            unselected_chems = [c for c in optional_chems if c not in selected_chems]
+            
+            mask_selected = pd.Series(True, index=st.session_state.df.index)
+            for c in selected_chems:
+                if c in st.session_state.df.columns:
+                    mask_selected = mask_selected & (st.session_state.df[c] > 0)
+                    
+            valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
+            extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
+            mask_extra = extra_additive_count <= 1
+            
+            matched_df = st.session_state.df[mask_selected & mask_extra].copy()
+            
+            if matched_df.empty:
+                st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試！")
+            else:
+                st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
+                matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
                 
-                # 條件一：使用者勾選的添加物，配方中必須都有 (大於 0)
-                mask_selected = pd.Series(True, index=st.session_state.df.index)
-                for c in selected_chems:
-                    if c in st.session_state.df.columns:
-                        mask_selected = mask_selected & (st.session_state.df[c] > 0)
+                cols_to_show = set(selected_chems)
+                for c in valid_unselected:
+                    if (matched_df[c] > 0).any():  
+                        cols_to_show.add(c)
                         
-                # 條件二：使用者未勾選的添加物中，最多只能有 1 種大於 0
-                valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
-                extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
-                mask_extra = extra_additive_count <= 1
+                display_cols = ['item', 'date_folder', 'chemical_formula', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                display_cols = [c for c in display_cols if c in matched_df.columns]
+                df_to_display = matched_df[display_cols]
                 
-                # 合併兩個條件過濾資料庫 (使用 copy 避免警告)
-                matched_df = st.session_state.df[mask_selected & mask_extra].copy()
-                
-                if matched_df.empty:
-                    st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試，請參考上方的 AI 預測！")
-                else:
-                    st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
-                    
-                    # 紀錄這筆配方到底是「完全相同 (0)」還是「多加一種 (1)」，供後續上色使用
-                    matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
-                    
-                    # 決定要顯示的欄位：包含多出來的那 1 種化學品
-                    cols_to_show = set(selected_chems)
-                    for c in valid_unselected:
-                        if (matched_df[c] > 0).any():  
-                            cols_to_show.add(c)
-                            
-                    # ✅ 需求修改：新增 'chemical_formula' 欄位，供人類閱讀
-                    display_cols = ['item', 'date_folder', 'chemical_formula', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
-                    # 確保要顯示的欄位真的存在於 DataFrame 中
-                    display_cols = [c for c in display_cols if c in matched_df.columns]
-                    
-                    df_to_display = matched_df[display_cols]
-                    
-                    # ✅ 需求修改：建立上色函式 (Pandas Styler)
-                    def highlight_identical(row):
-                        # 透過 index 去 matched_df 抓取剛才計算的 extra_count
-                        is_identical = matched_df.loc[row.name, 'extra_count'] == 0
-                        if is_identical:
-                            # 完全相同：使用 Streamlit 官方的高亮紅色
-                            return ['color: #ff4b4b'] * len(row)
-                        else:
-                            # 多加一種：維持預設顏色 (不強制標黑，以防深色模式看不見)
-                            return [''] * len(row)
+                def highlight_identical(row):
+                    is_identical = matched_df.loc[row.name, 'extra_count'] == 0
+                    return ['color: #ff4b4b'] * len(row) if is_identical else [''] * len(row)
 
-                    # 套用樣式設定
-                    styled_df = df_to_display.style.apply(highlight_identical, axis=1)
-                    
-                    # 顯示帶有顏色的表格
-                    st.dataframe(styled_df, use_container_width=True)
+                styled_df = df_to_display.style.apply(highlight_identical, axis=1)
+                st.dataframe(styled_df, use_container_width=True)
 
         st.divider()
         
-        # 實驗結果回寫區
-        with st.expander("📝 將真實實驗結果寫入資料庫 (做完實驗後填寫)", expanded=False):
-            rc1, rc2, rc3 = st.columns(3)
-            real_snag = rc1.number_input("真實 Snag Cu", value=0.0, step=0.01)
-            real_cu_ni = rc2.number_input("真實 Cu Ni", value=0.0, step=0.01)
-            real_time = rc3.number_input("蝕刻時間 (sec)", value=0, step=1)
-            real_result = st.text_area("實驗備註 (Result)", placeholder="吃得很乾淨、藥水有點濁...")
-            
-            if st.button("💾 儲存真實數據並重訓三大模型"):
-                new_row = {col: 0.0 for col in st.session_state.df.columns}
-                new_row['temp'], new_row['region'] = temp, region
-                new_row['H2O_weight'], new_row['H3PO4_weight'], new_row['H2O2_weight'] = h2o, h3po4, h2o2
-                for chem, val in chem_inputs.items():
-                    new_row[chem] = val
-                    
-                new_row['snag_cu_undercut_um'] = real_snag
-                new_row['cu_ni_undercut_um'] = real_cu_ni
-                new_row['etch_time_value_sec'] = real_time
-                new_row['result'] = real_result
-                new_row['date_folder'] = datetime.now().strftime("%Y%m%d")
-                new_row['item'] = "NEW"
-                
-                st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
-                train_models(st.session_state.df)
-                st.success("✅ 資料已新增！模型已吸收新經驗，變得更聰明了。")
 
 # ------------------------------------------
-# 分頁三：逆向最佳配方探索 (全自訂原料組合)
+# 分頁三：逆向最佳配方探索
 # ------------------------------------------
 with tab3:
-    st.header("🎯 逆向尋找最佳配方 (XGBoost 萬次模擬引擎)")
+    st.header("🎯 逆向尋找最佳配方 (自動換算為總重 100g 比例)")
     if st.session_state.df is None:
         st.info("請先至「資料載入」分頁上傳 CSV 檔案。")
     else:
-        st.write("設定您的目標與【欲使用的原料】，AI 會在背景生成 10,000 組不同重量的組合，並找出最接近目標的黃金比例。")
+        st.write("設定您的目標與原料，AI 在尋找最佳解答後，將為您直接產出「總重剛好為 100 克」的完美比例配方！")
         
-        # 1. 目標設定區
         st.markdown("#### 1. 設定預測目標")
         tcol1, tcol2 = st.columns(2)
         target_snag = tcol1.number_input("🎯 目標 Snag Cu (um)", value=0.100, step=0.01, format="%.3f")
         target_cu_ni = tcol2.number_input("🎯 目標 Cu Ni (um)", value=0.100, step=0.01, format="%.3f")
         
         st.divider()
-        
-        # 2. 原料勾選區
         st.markdown("#### 2. 勾選欲使用的配方原料")
-        st.caption("您可以自由勾選欲使用的基底與添加物。AI 會根據您勾選的項目，尋找最佳的重量比例。")
         
         tab3_selected_bases = []
         tab3_selected_chems = []
         
-        # --- 新增：核心基底獨立分類 (預設打勾) ---
         base_chems = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight']
         with st.expander("💧 核心基底 (預設使用)", expanded=True):
             b_col1, b_col2, b_col3 = st.columns(3)
-            # 使用 value=True 讓它們預設被勾選
-            if b_col1.checkbox("H2O", value=True, key="t3_H2O"):
-                tab3_selected_bases.append('H2O_weight')
-            if b_col2.checkbox("H3PO4", value=True, key="t3_H3PO4"):
-                tab3_selected_bases.append('H3PO4_weight')
-            if b_col3.checkbox("H2O2", value=True, key="t3_H2O2"):
-                tab3_selected_bases.append('H2O2_weight')
+            if b_col1.checkbox("H2O", value=True, key="t3_H2O"): tab3_selected_bases.append('H2O_weight')
+            if b_col2.checkbox("H3PO4", value=True, key="t3_H3PO4"): tab3_selected_bases.append('H3PO4_weight')
+            if b_col3.checkbox("H2O2", value=True, key="t3_H2O2"): tab3_selected_bases.append('H2O2_weight')
 
-        # --- 原有添加物分類 ---
         optional_chems = [c for c in st.session_state.feature_cols if c not in ['temp', 'region'] + base_chems]
         categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
         uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
         
-        # 使用 4 欄並排顯示分類
         cat_cols = st.columns(4)
         col_idx = 0
-        
         for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
             valid_chems = [c for c in chems_in_cat if c in optional_chems]
             if valid_chems:
@@ -415,80 +352,68 @@ with tab3:
                         tab3_selected_chems.append(chem)
 
         st.divider()
-        
-        # 3. 執行探索
         if st.button("🔍 開始 10,000 次平行宇宙模擬探索", type="primary", use_container_width=True):
-            # 防呆：確保使用者至少有勾選一種原料
             if len(tab3_selected_bases) + len(tab3_selected_chems) == 0:
-                st.warning("⚠️ 請至少勾選一種原料（基底或添加物），AI 才有辦法調配配方！")
+                st.warning("⚠️ 請至少勾選一種原料！")
             else:
-                with st.spinner("AI 正在為您勾選的原料測試 10,000 種重量組合，請稍候..."):
+                with st.spinner("AI 正在尋找最佳重量，並自動為您換算成 100g 總重比例..."):
                     N_SIMULATIONS = 10000
-                    
                     sim_data_1 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
                     sim_data_0 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
                     
-                    # 環境設定
-                    for sim_data in [sim_data_1, sim_data_0]:
-                        sim_data['temp'] = np.full(N_SIMULATIONS, 25.0)
-                    sim_data_1['region'] = np.full(N_SIMULATIONS, 1) # 密區
-                    sim_data_0['region'] = np.full(N_SIMULATIONS, 0) # 疏區
+                    for sim_data in [sim_data_1, sim_data_0]: sim_data['temp'] = np.full(N_SIMULATIONS, 25.0)
+                    sim_data_1['region'] = np.full(N_SIMULATIONS, 1)
+                    sim_data_0['region'] = np.full(N_SIMULATIONS, 0)
                     
-                    # --- 動態處理基底的隨機重量 ---
-                    # 有打勾才給亂數探索，沒打勾就是 0
+                    # 探索亂數範圍 (此時為隨機重量)
                     h2o_w = np.random.uniform(40.0, 90.0, N_SIMULATIONS) if 'H2O_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
                     h3po4_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS) if 'H3PO4_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
                     h2o2_w = np.random.uniform(1.0, 25.0, N_SIMULATIONS) if 'H2O2_weight' in tab3_selected_bases else np.zeros(N_SIMULATIONS)
                     
                     for sim_data in [sim_data_1, sim_data_0]:
-                        sim_data['H2O_weight'] = h2o_w
-                        sim_data['H3PO4_weight'] = h3po4_w
-                        sim_data['H2O2_weight'] = h2o2_w
+                        sim_data['H2O_weight'], sim_data['H3PO4_weight'], sim_data['H2O2_weight'] = h2o_w, h3po4_w, h2o2_w
                         
-                    # 為使用者勾選的添加物生成隨機重量 (範圍 0.1 ~ 8.0)
                     for chem in tab3_selected_chems:
                         rand_w = np.random.uniform(0.1, 8.0, N_SIMULATIONS)
-                        sim_data_1[chem] = rand_w
-                        sim_data_0[chem] = rand_w
+                        sim_data_1[chem], sim_data_0[chem] = rand_w, rand_w
                         
                     df_1 = pd.DataFrame(sim_data_1)
                     df_0 = pd.DataFrame(sim_data_0)
                     
-                    # XGBoost 預測
-                    pred_snag_1 = st.session_state.models['xgb_snag'].predict(df_1)
-                    pred_cuni_1 = st.session_state.models['xgb_cu_ni'].predict(df_1)
+                    # --- 將隨機生成的重量也轉換為百分比 (即總重 100g 比例) ---
+                    df_1_pct = convert_to_wt_pct(df_1, st.session_state.feature_cols)
+                    df_0_pct = convert_to_wt_pct(df_0, st.session_state.feature_cols)
                     
-                    pred_snag_0 = st.session_state.models['xgb_snag'].predict(df_0)
-                    pred_cuni_0 = st.session_state.models['xgb_cu_ni'].predict(df_0)
+                    # 使用百分比送進 AI 預測
+                    pred_snag_1 = st.session_state.models['xgb_snag'].predict(df_1_pct)
+                    pred_cuni_1 = st.session_state.models['xgb_cu_ni'].predict(df_1_pct)
+                    pred_snag_0 = st.session_state.models['xgb_snag'].predict(df_0_pct)
+                    pred_cuni_0 = st.session_state.models['xgb_cu_ni'].predict(df_0_pct)
                     
-                    # 綜合誤差計算
                     error_1 = np.abs(pred_snag_1 - target_snag) + np.abs(pred_cuni_1 - target_cu_ni)
                     error_0 = np.abs(pred_snag_0 - target_snag) + np.abs(pred_cuni_0 - target_cu_ni)
                     total_error = error_1 + error_0
                     
-                    # 整理輸出用的 DataFrame，只保留有被選到的欄位
+                    # 儲存結果時，直接存取 df_1_pct (因為它等於總重 100g 時的精確公克數)
                     results_dict = {
                         'error': total_error,
                         'pred_snag_1': pred_snag_1, 'pred_cuni_1': pred_cuni_1,
                         'pred_snag_0': pred_snag_0, 'pred_cuni_0': pred_cuni_0
                     }
-                    if 'H2O_weight' in tab3_selected_bases: results_dict['H2O_weight'] = h2o_w
-                    if 'H3PO4_weight' in tab3_selected_bases: results_dict['H3PO4_weight'] = h3po4_w
-                    if 'H2O2_weight' in tab3_selected_bases: results_dict['H2O2_weight'] = h2o2_w
+                    if 'H2O_weight' in tab3_selected_bases: results_dict['H2O_weight'] = df_1_pct['H2O_weight']
+                    if 'H3PO4_weight' in tab3_selected_bases: results_dict['H3PO4_weight'] = df_1_pct['H3PO4_weight']
+                    if 'H2O2_weight' in tab3_selected_bases: results_dict['H2O2_weight'] = df_1_pct['H2O2_weight']
                     
                     for chem in tab3_selected_chems:
-                        results_dict[chem] = df_1[chem]
+                        results_dict[chem] = df_1_pct[chem]
                         
                     results_df = pd.DataFrame(results_dict)
-                    
-                    # 取出綜合誤差最小的 Top 3
                     top3 = results_df.sort_values('error').head(3)
                     
-                st.success("🎉 探索完成！以下是 AI 在萬次模擬中，為您找出綜合表現最佳的 3 組比例：")
+                st.success("🎉 探索完成！AI 已將推薦配方自動換算為「總計 100g」的秤重比例：")
                 
-                # 顯示結果
                 for idx, row in top3.reset_index(drop=True).iterrows():
-                    st.markdown(f"### 🏆 推薦配方 Top {idx + 1}")
+                    st.markdown(f"### 🏆 推薦配方 Top {idx + 1} (總重 100g)")
                     
                     res_c1, res_c2 = st.columns(2)
                     with res_c1:
@@ -500,10 +425,7 @@ with tab3:
                         st.metric("Snag Cu", f"{row['pred_snag_0']:.3f} um", delta=f"{row['pred_snag_0'] - target_snag:.3f}", delta_color="inverse")
                         st.metric("Cu Ni", f"{row['pred_cuni_0']:.3f} um", delta=f"{row['pred_cuni_0'] - target_cu_ni:.3f}", delta_color="inverse")
                     
-                    # 動態產出配方字串 (只包含真正打勾的項目)
-                    formula_parts = []
-                    weight_parts = []
-                    
+                    formula_parts, weight_parts = [], []
                     if 'H2O_weight' in tab3_selected_bases:
                         formula_parts.append("H2O")
                         weight_parts.append(f"{row['H2O_weight']:.2f}")
@@ -523,3 +445,97 @@ with tab3:
                     
                     st.code(f"chemical_formula: {formula_str}\nchemical_weights: {weight_str}", language="text")
                     st.divider()
+# ------------------------------------------
+# 分頁四：實驗結果登錄
+# ------------------------------------------
+with tab4:
+    st.header("📝 登錄真實實驗結果")
+    if st.session_state.df is None:
+        st.info("請先至「資料載入」分頁上傳 CSV 檔案。")
+    else:
+        st.write("不論您是使用「正向推測」或「逆向探索」，完成實際實驗後，請在此處將最終配方與真實數據寫入資料庫。")
+        
+        # 使用 3 欄並排，左邊配方，右邊結果
+        t4_c1, t4_c2, t4_c3 = st.columns([1, 1, 1])
+        
+        with t4_c1:
+            st.markdown("### 🌡️ 1. 環境與基底")
+            t4_temp = st.number_input("溫度 (temp)", value=25.0, step=1.0, key="t4_temp")
+            t4_region = st.selectbox("區域 (region)", options=[1, 0], format_func=lambda x: "密區 (1)" if x == 1 else "疏區 (0)", key="t4_region")
+            st.divider()
+            t4_h2o = st.number_input("H2O 重量", value=60.0, step=1.0, key="t4_h2o")
+            t4_h3po4 = st.number_input("H3PO4 重量", value=10.0, step=1.0, key="t4_h3po4")
+            t4_h2o2 = st.number_input("H2O2 重量", value=15.0, step=1.0, key="t4_h2o2")
+
+        with t4_c2:
+            st.markdown("### 🧪 2. 實際添加物")
+            base_features = ['temp', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight']
+            optional_chems = [c for c in st.session_state.feature_cols if c not in base_features]
+            categorized_chems = [chem for sublist in CHEMICAL_CATEGORIES.values() for chem in sublist]
+            uncategorized_chems = [c for c in optional_chems if c not in categorized_chems]
+            
+            t4_chem_inputs = {}
+            t4_selected_count = 0
+            
+            # 使用手風琴選單讓操作者勾選實際用到的添加物
+            for cat_name, chems_in_cat in CHEMICAL_CATEGORIES.items():
+                valid_chems = [c for c in chems_in_cat if c in optional_chems]
+                if valid_chems:
+                    with st.expander(cat_name):
+                        for chem in valid_chems:
+                            if st.checkbox(chem.replace('_weight', ''), key=f"t4_chk_{chem}"):
+                                t4_selected_count += 1
+                                t4_chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"t4_num_{chem}")
+            
+            if uncategorized_chems:
+                with st.expander("📦 其他未分類添加物"):
+                    for chem in uncategorized_chems:
+                        if st.checkbox(chem.replace('_weight', ''), key=f"t4_chk_{chem}"):
+                            t4_selected_count += 1
+                            t4_chem_inputs[chem] = st.number_input(f"重量", value=1.0, step=0.1, key=f"t4_num_{chem}")
+                            
+            if t4_selected_count > 10:
+                st.error("⚠️ 選擇了超過 10 種添加物，請確認是否輸入錯誤。")
+
+        with t4_c3:
+            st.markdown("### 🔬 3. 真實實驗結果")
+            t4_real_snag = st.number_input("真實 Snag Cu (um)", value=0.0, step=0.01, key="t4_snag")
+            t4_real_cu_ni = st.number_input("真實 Cu Ni (um)", value=0.0, step=0.01, key="t4_cuni")
+            t4_real_time = st.number_input("蝕刻時間 (sec)", value=0, step=1, key="t4_time")
+            t4_real_result = st.text_area("實驗備註 (Result)", placeholder="請量化數據，吃得很乾淨100％、藥水有點濁...", height=110, key="t4_res")
+            
+            st.divider()
+            if st.button("💾 寫入資料並重訓 AI 模型", use_container_width=True, type="primary"):
+                if t4_selected_count <= 10:
+                    # 建立新資料列
+                    new_row = {col: 0.0 for col in st.session_state.df.columns}
+                    new_row['temp'], new_row['region'] = t4_temp, t4_region
+                    new_row['H2O_weight'], new_row['H3PO4_weight'], new_row['H2O2_weight'] = t4_h2o, t4_h3po4, t4_h2o2
+                    
+                    # 準備用來寫入字串的陣列
+                    formula_parts = ["H2O", "H3PO4", "H2O2"]
+                    weight_parts = [f"{t4_h2o:.2f}", f"{t4_h3po4:.2f}", f"{t4_h2o2:.2f}"]
+                    
+                    # 填寫添加物重量與字串
+                    for chem, val in t4_chem_inputs.items():
+                        new_row[chem] = val
+                        formula_parts.append(chem.replace('_weight', ''))
+                        weight_parts.append(f"{val:.2f}")
+                        
+                    # 合成人類可讀的配方字串 (解決歷史紀錄空缺的問題)
+                    new_row['chemical_formula'] = "+".join(formula_parts)
+                    new_row['chemical_weights'] = "+".join(weight_parts)
+                        
+                    # 填寫實驗結果
+                    new_row['snag_cu_undercut_um'], new_row['cu_ni_undercut_um'] = t4_real_snag, t4_real_cu_ni
+                    new_row['etch_time_value_sec'], new_row['result'] = t4_real_time, t4_real_result
+                    new_row['date_folder'], new_row['item'] = datetime.now().strftime("%Y%m%d"), "NEW"
+                    
+                    # 將新資料寫入暫存資料庫
+                    st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_row])], ignore_index=True)
+                    
+                    # 呼叫重訓函式，讓 AI 吸收新知識
+                    train_models(st.session_state.df)
+                    
+                    st.success("✅ 資料已新增！模型已在背景吸收新經驗，變得更聰明了。")
+                    st.info("💡 提示：您可以直接回到前幾個分頁繼續預測。如果準備下班，請點擊左側邊欄的「📥 下載最新 CSV 備份」存檔。")
