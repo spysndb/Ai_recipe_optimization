@@ -414,57 +414,54 @@ with tab2:
 
             # --- 【改用 Plotly：雙目標預測信心區間與全體分佈圖】 ---
            # --- 【信心評估面板：讓操作者一眼看懂可信度】 ---
+            # --- 【百分比信心面板：統一使用 % 顯示】 ---
             st.divider()
             st.subheader("🛡️ AI 推測信心評估報告")
             
             # 1. 計算數據接近度 (Proximity Score)
-            # 找出資料庫中與目前輸入最像的配方距離
             X_all_raw = st.session_state.df[st.session_state.feature_cols].fillna(0)
             X_all_pct = convert_to_wt_pct(X_all_raw, st.session_state.feature_cols)
-            
-            # 計算歐幾里得距離 (Euclidean distance)
             dist_all = np.sqrt(((X_all_pct - input_pct.iloc[0])**2).sum(axis=1))
             min_dist = dist_all.min()
-            
-            # 將距離轉換為 0-100 的得分 (距離 0 代表完全一樣 100分，距離越大分數越低)
-            # 20 是調整係數，可依實際感受調整
-            proximity_score = max(0, min(100, 100 - (min_dist * 15))) 
+            # 轉換為百分比
+            proximity_pct = max(0.0, min(100.0, 100.0 - (min_dist * 15))) 
 
             # 2. 計算模型共識度 (Consensus Score)
-            # 看看三顆 AI 大腦預測的 Snag Cu 是否一致
             preds = [rf_snag_val, xgb_snag_val, ridge_snag_val]
-            cv = np.std(preds) / np.mean(preds) if np.mean(preds) != 0 else 0 # 變異係數
-            consensus_score = max(0, min(100, 100 - (cv * 200))) 
+            cv = np.std(preds) / np.mean(preds) if np.mean(preds) != 0 else 0 
+            consensus_pct = max(0.0, min(100.0, 100.0 - (cv * 200))) 
 
-            # 3. 綜合信心指數
-            total_confidence = (proximity_score * 0.6) + (consensus_score * 0.4)
+            # 3. 綜合信賴指數
+            total_confidence = (proximity_pct * 0.6) + (consensus_pct * 0.4)
 
-            # --- 顯示面板 ---
+            # --- 顯示面板 (統一百分比格式) ---
             conf_c1, conf_c2, conf_c3 = st.columns(3)
             
             with conf_c1:
-                st.write("**數據接近度 (經驗)**")
-                if proximity_score > 85:
-                    st.success(f"💎 優 ( {proximity_score:.0f}分 )")
-                elif proximity_score > 60:
-                    st.warning(f"🟡 良 ( {proximity_score:.0f}分 )")
+                st.write("**數據接近度 (經驗分數)**")
+                val_text = f"{proximity_pct:.1f}%"
+                if proximity_pct > 85:
+                    st.success(f"💎 {val_text}")
+                elif proximity_pct > 60:
+                    st.warning(f"🟡 {val_text}")
                 else:
-                    st.error(f"❄️ 偏低 ( {proximity_score:.0f}分 )")
-                st.caption("這代表資料庫中是否有相似配方的實驗紀錄。")
+                    st.error(f"❄️ {val_text}")
+                st.caption("數值越高，代表資料庫中相似實驗越多。")
 
             with conf_c2:
-                st.write("**模型共識度 (信心)**")
-                if consensus_score > 85:
-                    st.success(f"🤝 極高 ( {consensus_score:.0f}分 )")
-                elif consensus_score > 60:
-                    st.warning(f"🤔 一般 ( {consensus_score:.0f}分 )")
+                st.write("**模型共識度 (演算法信心)**")
+                val_text = f"{consensus_pct:.1f}%"
+                if consensus_pct > 85:
+                    st.success(f"🤝 {val_text}")
+                elif consensus_pct > 60:
+                    st.warning(f"🤔 {val_text}")
                 else:
-                    st.error(f"🚫 分歧 ( {consensus_score:.0f}分 )")
-                st.caption("這代表三種不同的 AI 演算法對此配方的預測是否一致。")
+                    st.error(f"🚫 {val_text}")
+                st.caption("數值越高，代表不同 AI 模型推測結果越一致。")
 
             with conf_c3:
                 st.write("**綜合信賴指數**")
-                # 用進度條來顯示最終信心值
+                # 顯示大型百分比指標
                 st.progress(total_confidence / 100)
                 if total_confidence > 80:
                     st.success(f"✅ **{total_confidence:.1f}% 可信**")
@@ -473,9 +470,8 @@ with tab2:
                 else:
                     st.error(f"❌ **{total_confidence:.1f}% 風險較高**")
 
-            # 保留原本的誤差範圍與分佈圖 (放在下方當作詳細佐證)
-            with st.expander("🔍 點擊查看詳細數據分佈與誤差估計"):
-                # (這裡放原本計算 MAE 誤差和畫圖的程式碼，你可以直接搬過來)
+            # 保留歷史分佈作為輔助說明 (收納在 expander)
+            with st.expander("🔍 點擊查看歷史數據對照細節"):
                 y_all_real_snag = st.session_state.df['snag_cu_undercut_um'].fillna(0)
                 y_all_pred_snag = st.session_state.models['xgb_snag'].predict(X_all_pct)
                 avg_error_snag = np.mean(np.abs(y_all_real_snag - y_all_pred_snag))
@@ -486,12 +482,12 @@ with tab2:
 
                 d1, d2 = st.columns(2)
                 with d1:
-                    st.write(f"Snag Cu 誤差範圍: ±{avg_error_snag:.3f} um")
+                    st.write(f"Snag Cu 預期誤差: ±{avg_error_snag:.3f} um")
                     fig_snag = px.histogram(st.session_state.df, x='snag_cu_undercut_um', nbins=30, opacity=0.7)
                     fig_snag.add_vline(x=xgb_snag_val, line_dash="dash", line_color="red")
                     st.plotly_chart(fig_snag, use_container_width=True)
                 with d2:
-                    st.write(f"Cu Ni 誤差範圍: ±{avg_error_cuni:.3f} um")
+                    st.write(f"Cu Ni 預期誤差: ±{avg_error_cuni:.3f} um")
                     fig_cuni = px.histogram(st.session_state.df, x='cu_ni_undercut_um', nbins=30, opacity=0.7)
                     fig_cuni.add_vline(x=xgb_cuni_val, line_dash="dash", line_color="red")
                     st.plotly_chart(fig_cuni, use_container_width=True)
