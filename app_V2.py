@@ -495,15 +495,11 @@ with tab2:
 
             # 歷史查詢 (保留原始重量的嚴格比對邏輯)
             # --- 【雙重通知版：歷史配方查詢】 ---
+            # --- 【修正版：歷史配方雙重通知查詢 (移除手動調整框)】 ---
             st.divider()
-            st.markdown("#### 📚 歷史相似配方清單")
-            
-            # 搜尋寬鬆度設定
-            col_search1, col_search2 = st.columns([1, 2])
-            with col_search1:
-                max_extra = st.number_input("🔍 容許額外添加物數量：", min_value=0, max_value=5, value=2)
-            
-            # 1. 執行篩選邏輯
+            st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體)")
+
+            # 1. 執行篩選邏輯 (維持原本 <= 1 的嚴格準則)
             selected_chems = list(chem_inputs.keys())
             unselected_chems = [c for c in optional_chems if c not in selected_chems]
             
@@ -514,31 +510,35 @@ with tab2:
                     
             valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
             extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
-            mask_extra = extra_additive_count <= max_extra
+            
+            # 固定為原本的邏輯：最多只容許 1 種額外添加物
+            mask_extra = extra_additive_count <= 1
             
             matched_df = st.session_state.df[mask_selected & mask_extra].copy()
             matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
 
-            # 2. 判斷是否有「完全相同」的紀錄 (extra_count 為 0 且數值相等)
-            # 這裡沿用您前面已經做好的 has_exact_match 變數
-            
-            # 3. 雙重通知顯示
+            # 2. 雙重通知顯示
             if matched_df.empty:
-                st.error("❌ 找不到任何相似的歷史配方。")
+                st.error("❌ 找不到任何相似或相同的歷史配方。")
             else:
-                # 建立第一層通知：相同配方
+                # 判斷是否有完全相同的紀錄 (使用我們前面計算好的 has_exact_match)
+                # 這裡會判斷「配方組成」一樣且「重量」也完全一樣
                 if has_exact_match:
-                    match_msg = "✅ **已找到完全相同的配方與比例紀錄！** (標記為🔴紅色)"
+                    match_msg = "✅ **偵測成功：已找到比例完全相同的配方紀錄！** (標記為🔴紅色)"
+                    info_color = "success"
                 else:
-                    match_msg = "⚠️ **注意：資料庫中沒有完全一致的配方比例紀錄。**"
+                    match_msg = "⚠️ **注意：資料庫中「沒有」比例完全一致的紀錄，僅供相似參考。**"
+                    info_color = "info"
                 
-                # 建立第二層通知：相似筆數
-                sim_msg = f"🔍 目前共找到 **{len(matched_df)}** 筆相似的歷史配方。"
+                sim_msg = f"🔍 目前找到 **{len(matched_df)}** 筆相似配方 (包含勾選成分且額外添加物 ≤ 1 種)。"
                 
-                # 合併顯示在醒目的區塊中
-                st.info(f"{match_msg}  \n{sim_msg}")
+                # 顯示雙重通知框
+                if info_color == "success":
+                    st.success(f"{match_msg}  \n{sim_msg}")
+                else:
+                    st.info(f"{match_msg}  \n{sim_msg}")
 
-                # 4. 準備表格顯示
+                # 3. 準備表格顯示
                 cols_to_show = set(selected_chems)
                 for c in valid_unselected:
                     if (matched_df[c] > 0).any():  
@@ -548,13 +548,22 @@ with tab2:
                 display_cols = [c for c in display_cols if c in matched_df.columns]
                 df_to_display = matched_df[display_cols]
                 
-                def highlight_identical(row):
-                    # 如果該列是完全相同比例，就變色
-                    # 我們這裡簡單用 extra_count 是否為 0 來判斷
-                    is_identical = matched_df.loc[row.name, 'extra_count'] == 0
-                    return ['color: #ff4b4b'] * len(row) if is_identical else [''] * len(row)
+                # 高亮顯示：這裡判斷如果 extra_count 為 0 且重量完全吻合，則變色
+                def highlight_logic(row):
+                    # 檢查該列是否為我們在前面找到的「完全一致」的列
+                    is_exact = False
+                    if matched_df.loc[row.name, 'extra_count'] == 0:
+                        # 進一步確認重量是否完全一致
+                        weight_match = True
+                        for col in st.session_state.feature_cols:
+                            if abs(st.session_state.df.loc[row.name, col] - input_data[col]) > 1e-5:
+                                weight_match = False
+                                break
+                        is_exact = weight_match
+                        
+                    return ['color: #ff4b4b'] * len(row) if is_exact else [''] * len(row)
 
-                styled_df = df_to_display.style.apply(highlight_identical, axis=1)
+                styled_df = df_to_display.style.apply(highlight_logic, axis=1)
                 st.dataframe(styled_df, use_container_width=True)
         st.divider()
 
