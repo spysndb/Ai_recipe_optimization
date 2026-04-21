@@ -13,15 +13,8 @@ import plotly.express as px
 
 
 
-# ==========================================
-# 【修正點 1】：補上畫圖必須的套件
-# ==========================================
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-# 解決圖表中文顯示變亂碼的問題 (涵蓋 Windows 與 Mac)
-plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Microsoft JhengHei', 'PingFang HK', 'sans-serif']
-plt.rcParams['axes.unicode_minus'] = False
+
 
 # ==========================================
 # 1. 頁面基本設定與分類字典
