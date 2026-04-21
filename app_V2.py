@@ -9,6 +9,16 @@ from datetime import datetime
 import io
 
 # ==========================================
+# 【修正點 1】：補上畫圖必須的套件
+# ==========================================
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 解決圖表中文顯示變亂碼的問題 (涵蓋 Windows 與 Mac)
+plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Microsoft JhengHei', 'PingFang HK', 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False
+
+# ==========================================
 # 1. 頁面基本設定與分類字典
 # ==========================================
 st.set_page_config(page_title="蝕刻配方推測系統", page_icon="🧪", layout="wide")
@@ -259,8 +269,8 @@ with tab2:
                 st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
             
             st.divider()
+            
             # --- 【方案 C 改進版：動態成分影響力】 ---
-            st.divider()
             st.subheader("🎯 當前配方成分影響力分析")
             st.write("此圖表僅顯示您目前選用的原料對蝕刻結果的貢獻程度。")
 
@@ -306,7 +316,6 @@ with tab2:
             st.subheader("🛡️ 預測值信心評估 (可靠性驗證)")
             
             # 這裡計算歷史預測與真實值的平均誤差 (MAE) 作為參考值
-            # 為了簡單化，我們直接拿 XGBoost 在現有資料上的表現
             X_all_raw = st.session_state.df[st.session_state.feature_cols].fillna(0)
             X_all_pct = convert_to_wt_pct(X_all_raw, st.session_state.feature_cols)
             y_all_real = st.session_state.df['snag_cu_undercut_um'].fillna(0)
@@ -317,7 +326,7 @@ with tab2:
             
             c1, c2 = st.columns(2)
             with c1:
-                st.write(f"### 預估 Snag Cu 範圍")
+                st.write("### 預估 Snag Cu 範圍")
                 # 顯示一個範圍給客戶看
                 st.success(f"{xgb_snag_val - avg_error:.3f} ~ {xgb_snag_val + avg_error:.3f} um")
                 st.caption(f"(基於歷史平均誤差 ±{avg_error:.4f} um)")
@@ -331,9 +340,7 @@ with tab2:
                 ax_conf.legend(fontsize='small')
                 st.pyplot(fig_conf)
 
-
-
-
+            st.divider()
             
             # 歷史查詢 (保留原始重量的嚴格比對邏輯)
             st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
@@ -375,7 +382,6 @@ with tab2:
 
         st.divider()
         
-
 # ------------------------------------------
 # 分頁三：逆向最佳配方探索
 # ------------------------------------------
@@ -519,6 +525,7 @@ with tab3:
                     
                     st.code(f"chemical_formula: {formula_str}\nchemical_weights: {weight_str}", language="text")
                     st.divider()
+
 # ------------------------------------------
 # 分頁四：實驗結果登錄
 # ------------------------------------------
