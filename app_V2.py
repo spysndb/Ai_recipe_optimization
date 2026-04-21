@@ -256,6 +256,66 @@ with tab2:
             xgb_cuni_val = st.session_state.models['xgb_cu_ni'].predict(input_pct)[0]
             ridge_snag_val = st.session_state.models['ridge_snag'].predict(input_scaled)[0]
             ridge_cuni_val = st.session_state.models['ridge_cu_ni'].predict(input_scaled)[0]
+
+            # ==========================================
+            # 【新增邏輯】：尋找完全相同的歷史配方並計算差距
+            # ==========================================
+            # 在資料庫中尋找特徵完全一致的列
+            match_mask = pd.Series(True, index=st.session_state.df.index)
+            for col in st.session_state.feature_cols:
+                # 比對每一個重量與環境參數 (fillna(0) 確保比對一致)
+                match_mask &= (st.session_state.df[col].fillna(0) == input_data[col])
+            
+            matched_history = st.session_state.df[match_mask]
+            has_exact_match = not matched_history.empty
+            
+            if has_exact_match:
+                # 取得歷史真實值 (若有多筆取第一筆)
+                real_snag = matched_history['snag_cu_undercut_um'].iloc[0]
+                real_cuni = matched_history['cu_ni_undercut_um'].iloc[0]
+                
+                # 定義計算差距百分比的輔助函式 (避免除以零)
+                def get_gap(pred, real):
+                    if real == 0: return 0.0
+                    return ((pred - real) / real) * 100
+                
+                # 計算各模型的差距
+                rf_gap_snag = get_gap(rf_snag_val, real_snag)
+                rf_gap_cuni = get_gap(rf_cuni_val, real_cuni)
+                xgb_gap_snag = get_gap(xgb_snag_val, real_snag)
+                xgb_gap_cuni = get_gap(xgb_cuni_val, real_cuni)
+                ridge_gap_snag = get_gap(ridge_snag_val, real_snag)
+                ridge_gap_cuni = get_gap(ridge_cuni_val, real_cuni)
+            # ==========================================
+
+            st.markdown("### 📊 多模型預測結果比較")
+            if has_exact_match:
+                st.write(f"💡 **偵測到相同歷史配方**：真實 Snag Cu: `{real_snag:.3f}`, 真實 Cu Ni: `{real_cuni:.3f}`。下方顯示 AI 與真實值之差距 %。")
+
+            res_col1, res_col2, res_col3 = st.columns(3)
+            with res_col1:
+                st.info("🌳 **隨機森林 (保守派)**")
+                # 使用 delta 顯示差距
+                d_snag = f"{rf_gap_snag:+.1f}%" if has_exact_match else None
+                d_cuni = f"{rf_gap_cuni:+.1f}%" if has_exact_match else None
+                st.metric("預測 Snag Cu (um)", f"{rf_snag_val:.3f}", delta=d_snag, delta_color="inverse")
+                st.metric("預測 Cu Ni (um)", f"{rf_cuni_val:.3f}", delta=d_cuni, delta_color="inverse")
+                
+            with res_col2:
+                st.warning("⚡ **XGBoost (敏銳派)**")
+                d_snag = f"{xgb_gap_snag:+.1f}%" if has_exact_match else None
+                d_cuni = f"{xgb_gap_cuni:+.1f}%" if has_exact_match else None
+                st.metric("預測 Snag Cu (um)", f"{xgb_snag_val:.3f}", delta=d_snag, delta_color="inverse")
+                st.metric("預測 Cu Ni (um)", f"{xgb_cuni_val:.3f}", delta=d_cuni, delta_color="inverse")
+                
+            with res_col3:
+                st.success("📈 **脊迴歸 (趨勢派)**")
+                d_snag = f"{ridge_gap_snag:+.1f}%" if has_exact_match else None
+                d_cuni = f"{ridge_gap_cuni:+.1f}%" if has_exact_match else None
+                st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}", delta=d_snag, delta_color="inverse")
+                st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}", delta=d_cuni, delta_color="inverse")
+
+
             
             st.markdown("### 📊 多模型預測結果比較")
             res_col1, res_col2, res_col3 = st.columns(3)
@@ -271,7 +331,8 @@ with tab2:
                 st.success("📈 **脊迴歸 (趨勢派)**")
                 st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
                 st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
-            
+
+                       
             # --- 【改用 Plotly：動態成分影響力 (支援勾選與相對百分比)】 ---
             st.divider()
             st.subheader("🎯 當前配方成分影響力分析")
