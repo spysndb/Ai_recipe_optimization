@@ -509,12 +509,23 @@ with tab2:
             
             matched_df = st.session_state.df[mask_selected & mask_extra].copy()
             
+            # 3. 雙重通知顯示
             if matched_df.empty:
-                st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試！")
+                st.error("❌ 找不到任何相似的歷史配方。")
             else:
-                st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
-                matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
+                # 建立第一層通知：相同配方
+                if has_exact_match:
+                    match_msg = "✅ **已找到完全相同的配方與比例紀錄！** (標記為🔴紅色)"
+                else:
+                    match_msg = "⚠️ **注意：資料庫中沒有完全一致的配方比例紀錄。**"
                 
+                # 建立第二層通知：相似筆數
+                sim_msg = f"🔍 目前共找到 **{len(matched_df)}** 筆相似的歷史配方。"
+                
+                # 合併顯示在醒目的區塊中
+                st.info(f"{match_msg}  \n{sim_msg}")
+
+                # 4. 準備表格顯示
                 cols_to_show = set(selected_chems)
                 for c in valid_unselected:
                     if (matched_df[c] > 0).any():  
@@ -525,6 +536,8 @@ with tab2:
                 df_to_display = matched_df[display_cols]
                 
                 def highlight_identical(row):
+                    # 如果該列是完全相同比例，就變色
+                    # 我們這裡簡單用 extra_count 是否為 0 來判斷
                     is_identical = matched_df.loc[row.name, 'extra_count'] == 0
                     return ['color: #ff4b4b'] * len(row) if is_identical else [''] * len(row)
 
