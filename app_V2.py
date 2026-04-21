@@ -259,7 +259,82 @@ with tab2:
                 st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
             
             st.divider()
+            # --- 【方案 C 改進版：動態成分影響力】 ---
+            st.divider()
+            st.subheader("🎯 當前配方成分影響力分析")
+            st.write("此圖表僅顯示您目前選用的原料對蝕刻結果的貢獻程度。")
 
+            # 1. 取得所有選中的成分 (基礎 3 種 + 使用者勾選的)
+            active_ingredients = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(chem_inputs.keys())
+            
+            # 2. 取得模型全局重要性並過濾
+            model_xgb = st.session_state.models['xgb_snag']
+            all_importances = model_xgb.feature_importances_
+            all_feats = st.session_state.feature_cols
+            
+            # 建立 DataFrame 只包含目前有用的成分
+            importance_data = []
+            for feat, imp in zip(all_feats, all_importances):
+                if feat in active_ingredients:
+                    importance_data.append({'成分': feat.replace('_weight', ''), '重要程度': imp})
+            
+            df_imp = pd.DataFrame(importance_data)
+
+            # 3. 提供自由勾選功能 (Multiselect)
+            # 預設全選
+            selected_display = st.multiselect(
+                "選擇欲觀察的成分：", 
+                options=df_imp['成分'].tolist(), 
+                default=df_imp['成分'].tolist()
+            )
+
+            # 4. 根據勾選結果繪圖
+            if selected_display:
+                plot_df = df_imp[df_imp['成分'].isin(selected_display)].sort_values('重要程度', ascending=False)
+                
+                fig_imp, ax_imp = plt.subplots(figsize=(8, 4))
+                # 使用簡單乾淨的藍色系
+                sns.barplot(x='重要程度', y='成分', data=plot_df, palette='Blues_r', ax=ax_imp)
+                ax_imp.set_title("選定成分之相對影響力排行榜")
+                st.pyplot(fig_imp)
+                st.info("💡 指標越高，代表該成分對最終蝕刻數值的變動影響越大。")
+            else:
+                st.warning("請至少選擇一個成分進行分析。")
+
+            # --- 【方案 A 改進版：預測信心區間】 ---
+            st.divider()
+            st.subheader("🛡️ 預測值信心評估 (可靠性驗證)")
+            
+            # 這裡計算歷史預測與真實值的平均誤差 (MAE) 作為參考值
+            # 為了簡單化，我們直接拿 XGBoost 在現有資料上的表現
+            X_all_raw = st.session_state.df[st.session_state.feature_cols].fillna(0)
+            X_all_pct = convert_to_wt_pct(X_all_raw, st.session_state.feature_cols)
+            y_all_real = st.session_state.df['snag_cu_undercut_um'].fillna(0)
+            y_all_pred = st.session_state.models['xgb_snag'].predict(X_all_pct)
+            
+            # 計算平均誤差
+            avg_error = np.mean(np.abs(y_all_real - y_all_pred))
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"### 預估 Snag Cu 範圍")
+                # 顯示一個範圍給客戶看
+                st.success(f"{xgb_snag_val - avg_error:.3f} ~ {xgb_snag_val + avg_error:.3f} um")
+                st.caption(f"(基於歷史平均誤差 ±{avg_error:.4f} um)")
+            
+            with c2:
+                # 畫一個簡單的機率分佈圖，標註當前預測點
+                fig_conf, ax_conf = plt.subplots(figsize=(5, 2))
+                sns.kdeplot(y_all_real, fill=True, ax=ax_conf, label="歷史數據分佈")
+                ax_conf.axvline(xgb_snag_val, color='red', linestyle='--', label="本次預測點")
+                ax_conf.set_title("本次推測點在歷史數據中的位置")
+                ax_conf.legend(fontsize='small')
+                st.pyplot(fig_conf)
+
+
+
+
+            
             # 歷史查詢 (保留原始重量的嚴格比對邏輯)
             st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
             selected_chems = list(chem_inputs.keys())
