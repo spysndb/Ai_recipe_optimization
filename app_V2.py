@@ -279,14 +279,27 @@ with tab2:
                 st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
                 st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
             
-            # --- 【改用 Plotly：動態成分影響力 (優化排版與百分比)】 ---
+            # --- 【改用 Plotly：動態成分影響力 (支援勾選與相對百分比)】 ---
             st.divider()
             st.subheader("🎯 當前配方成分影響力分析")
             st.write("您可以取消勾選佔比過大的基底（如 H2O），圖表會自動重新計算剩餘成分的「相對影響百分比」。")
 
             active_ingredients = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(chem_inputs.keys())
+            
+            # ==========================================
+            # 【修正核心】：從「全體歷史重要性」改為「本次配方的局部貢獻度」
+            # ==========================================
             model_xgb = st.session_state.models['xgb_snag']
-            all_importances = model_xgb.feature_importances_
+            
+            # 將當前輸入的配方百分比轉換為 XGBoost 專用格式
+            dmatrix = xgb.DMatrix(input_pct)
+            
+            # 使用 pred_contribs=True 啟動局部解析，算出「這組特定重量」對預測值的真實推動力
+            # [0] 代表取第一筆資料，[:-1] 是為了去除 XGBoost 預設的基準偏差值 (Bias)
+            local_contribs = model_xgb.get_booster().predict(dmatrix, pred_contribs=True)[0][:-1]
+            
+            # 取絕對值：因為某些化學品可能是讓數值下降(負貢獻)，某些是上升(正貢獻)，取絕對值代表「影響力強度」
+            all_importances = np.abs(local_contribs)
             all_feats = st.session_state.feature_cols
             
             importance_data = []
@@ -297,7 +310,7 @@ with tab2:
             df_imp = pd.DataFrame(importance_data)
 
             # ==========================================
-            # 【修正點 2】動態欄位計算，讓 Checkbox 排列緊密不留白
+            # 動態欄位計算，讓 Checkbox 排列緊密不留白
             # ==========================================
             st.markdown("##### 🧪 勾選欲觀察的成分：")
             num_cols = min(len(df_imp), 6) # 根據選用的成分數量動態切分欄位 (最多 6 欄)
@@ -306,29 +319,39 @@ with tab2:
             
             for i, chem in enumerate(df_imp['成分'].tolist()):
                 with cols[i % num_cols]:
-                    # 利用 session_state 保護勾選狀態
+                    # 利用 key 確保 Streamlit 能記住勾選狀態
                     if st.checkbox(chem, value=True, key=f"imp_chk_{chem}"):
                         selected_display.append(chem)
 
             if selected_display:
                 plot_df = df_imp[df_imp['成分'].isin(selected_display)].copy()
+                
+                # 計算相對百分比 (讓被勾選的項目總和強制為 100%)
                 total_selected_imp = plot_df['原始重要程度'].sum()
                 if total_selected_imp > 0:
                     plot_df['相對百分比'] = (plot_df['原始重要程度'] / total_selected_imp) * 100
                 else:
                     plot_df['相對百分比'] = 0.0
                     
+                # 排序讓最長的 bar 在最上面
                 plot_df = plot_df.sort_values('相對百分比', ascending=True)
                 
+                # 建立 Plotly 互動圖表 (顯示 % 符號)
                 fig_imp = px.bar(
-                    plot_df, x='相對百分比', y='成分', orientation='h', 
+                    plot_df, 
+                    x='相對百分比', 
+                    y='成分', 
+                    orientation='h', 
                     text=plot_df['相對百分比'].apply(lambda x: f'{x:.1f}%'),
                     color_discrete_sequence=['#4A90E2']
                 )
                 fig_imp.update_traces(textposition='outside')
+                # 為了避免文字被切斷，將 x 軸最大值拉寬一點
                 fig_imp.update_layout(
-                    height=300, margin=dict(l=0, r=40, t=30, b=0), 
-                    xaxis_title="選定成分間的相對影響力 (%)", yaxis_title="",
+                    height=300, 
+                    margin=dict(l=0, r=40, t=30, b=0), 
+                    xaxis_title="選定成分間的相對影響力 (%)",
+                    yaxis_title="",
                     xaxis=dict(range=[0, plot_df['相對百分比'].max() * 1.15]) 
                 )
                 st.plotly_chart(fig_imp, use_container_width=True)
