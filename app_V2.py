@@ -317,20 +317,20 @@ with tab2:
 
 
             
-            st.markdown("### 📊 多模型預測結果比較")
-            res_col1, res_col2, res_col3 = st.columns(3)
-            with res_col1:
-                st.info("🌳 **隨機森林 (保守派)**")
-                st.metric("預測 Snag Cu (um)", f"{rf_snag_val:.3f}")
-                st.metric("預測 Cu Ni (um)", f"{rf_cuni_val:.3f}")
-            with res_col2:
-                st.warning("⚡ **XGBoost (敏銳派)**")
-                st.metric("預測 Snag Cu (um)", f"{xgb_snag_val:.3f}")
-                st.metric("預測 Cu Ni (um)", f"{xgb_cuni_val:.3f}")
-            with res_col3:
-                st.success("📈 **脊迴歸 (趨勢派)**")
-                st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
-                st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
+            # st.markdown("### 📊 多模型預測結果比較")
+            # res_col1, res_col2, res_col3 = st.columns(3)
+            # with res_col1:
+            #     st.info("🌳 **隨機森林 (保守派)**")
+            #     st.metric("預測 Snag Cu (um)", f"{rf_snag_val:.3f}")
+            #     st.metric("預測 Cu Ni (um)", f"{rf_cuni_val:.3f}")
+            # with res_col2:
+            #     st.warning("⚡ **XGBoost (敏銳派)**")
+            #     st.metric("預測 Snag Cu (um)", f"{xgb_snag_val:.3f}")
+            #     st.metric("預測 Cu Ni (um)", f"{xgb_cuni_val:.3f}")
+            # with res_col3:
+            #     st.success("📈 **脊迴歸 (趨勢派)**")
+            #     st.metric("預測 Snag Cu (um)", f"{ridge_snag_val:.3f}")
+            #     st.metric("預測 Cu Ni (um)", f"{ridge_cuni_val:.3f}")
 
                        
             # --- 【改用 Plotly：動態成分影響力 (支援勾選與相對百分比)】 ---
