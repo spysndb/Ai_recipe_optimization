@@ -387,6 +387,48 @@ with tab2:
                 st.plotly_chart(fig_cuni, use_container_width=True)
                 
             st.divider()
+
+
+            # 歷史查詢 (保留原始重量的嚴格比對邏輯)
+            st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
+            selected_chems = list(chem_inputs.keys())
+            unselected_chems = [c for c in optional_chems if c not in selected_chems]
+            
+            mask_selected = pd.Series(True, index=st.session_state.df.index)
+            for c in selected_chems:
+                if c in st.session_state.df.columns:
+                    mask_selected = mask_selected & (st.session_state.df[c] > 0)
+                    
+            valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
+            extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
+            mask_extra = extra_additive_count <= 1
+            
+            matched_df = st.session_state.df[mask_selected & mask_extra].copy()
+            
+            if matched_df.empty:
+                st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試！")
+            else:
+                st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
+                matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
+                
+                cols_to_show = set(selected_chems)
+                for c in valid_unselected:
+                    if (matched_df[c] > 0).any():  
+                        cols_to_show.add(c)
+                        
+                display_cols = ['item', 'date_folder', 'chemical_formula', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
+                display_cols = [c for c in display_cols if c in matched_df.columns]
+                df_to_display = matched_df[display_cols]
+                
+                def highlight_identical(row):
+                    is_identical = matched_df.loc[row.name, 'extra_count'] == 0
+                    return ['color: #ff4b4b'] * len(row) if is_identical else [''] * len(row)
+
+                styled_df = df_to_display.style.apply(highlight_identical, axis=1)
+                st.dataframe(styled_df, use_container_width=True)
+
+        st.divider()
+
         
 # ------------------------------------------
 # 分頁三：逆向最佳配方探索
