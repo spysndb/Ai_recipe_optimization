@@ -4,10 +4,6 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
-
-from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import r2_score
-
 import xgboost as xgb
 from datetime import datetime
 import io
@@ -102,8 +98,6 @@ def convert_to_wt_pct(X_df, feature_cols):
     X_pct[chem_cols] = X_pct[chem_cols].div(total_weights, axis=0) * 100
     return X_pct
 
-
-
 def train_models(df):
     feature_cols = [col for col in df.columns if col not in NON_FEATURE_COLS + TARGET_COLS]
     st.session_state.feature_cols = feature_cols
@@ -112,34 +106,21 @@ def train_models(df):
     y_snag = df['snag_cu_undercut_um'].fillna(0)
     y_cu_ni = df['cu_ni_undercut_um'].fillna(0)
     
-    # 轉換為重量百分比
+    # 轉換為重量百分比供模型學習
     X_pct = convert_to_wt_pct(X_raw, feature_cols)
-    
-    # 【新增】建立鄰居追蹤器 (用於計算支持度)
-    # 我們讓模型記住所有看過的百分比配方
-    nn_model = NearestNeighbors(n_neighbors=1).fit(X_pct)
-    st.session_state.nn_model = nn_model
     
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_pct)
     st.session_state.scaler = scaler
     
-    # 訓練模型
     rf_snag = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_snag)
     rf_cu_ni = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_cu_ni)
+    
     xgb_snag = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_snag)
     xgb_cu_ni = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_cu_ni)
+    
     ridge_snag = Ridge(alpha=1.0).fit(X_scaled, y_snag)
     ridge_cu_ni = Ridge(alpha=1.0).fit(X_scaled, y_cu_ni)
-    
-    # 【新增】模型健康診斷：計算 R平方值 (R²)
-    # R² 越接近 1.0 代表模型預測越精準
-    st.session_state.health_metrics = {
-        'RF_Snag': r2_score(y_snag, rf_snag.predict(X_pct)),
-        'RF_CuNi': r2_score(y_cu_ni, rf_cu_ni.predict(X_pct)),
-        'XGB_Snag': r2_score(y_snag, xgb_snag.predict(X_pct)),
-        'XGB_CuNi': r2_score(y_cu_ni, xgb_cu_ni.predict(X_pct))
-    }
     
     st.session_state.models = {
         'rf_snag': rf_snag, 'rf_cu_ni': rf_cu_ni,
@@ -184,16 +165,6 @@ with tab1:
                 train_models(df)
                 st.session_state["current_file_id"] = file_id
             st.success("✅ 資料讀取與多重模型訓練成功！您可以前往「正向推測」分頁。")
-            # 【新增】顯示健康診斷表格
-            st.markdown("### 📊 模型健康診斷 (Model Health)")
-            st.write("這代表 AI 對目前資料庫的理解程度，$R^2$ 越接近 **1.0** 代表過去資料的擬合度越高。")
-            h = st.session_state.health_metrics
-            health_df = pd.DataFrame({
-                "預測目標": ["Snag Cu (um)", "Cu Ni (um)"],
-                "隨機森林精度 ($R^2$)": [f"{h['RF_Snag']:.3f}", f"{h['RF_CuNi']:.3f}"],
-                "XGBoost精度 ($R^2$)": [f"{h['XGB_Snag']:.3f}", f"{h['XGB_CuNi']:.3f}"]
-            })
-            st.table(health_df)
         else:
             st.success("✅ 資料庫與模型已在記憶體中準備就緒！您可以放心操作。")
 
