@@ -275,10 +275,10 @@ with tab2:
             
             st.divider()
             
-           # --- 【改用 Plotly：動態成分影響力】 ---
+           # --- 【改用 Plotly：動態成分影響力 (支援勾選與相對百分比)】 ---
             st.divider()
             st.subheader("🎯 當前配方成分影響力分析")
-            st.write("此圖表僅顯示您目前選用的原料對蝕刻結果的貢獻程度。")
+            st.write("您可以取消勾選佔比過大的基底（如 H2O），圖表會自動重新計算剩餘成分的「相對影響百分比」。")
 
             active_ingredients = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(chem_inputs.keys())
             model_xgb = st.session_state.models['xgb_snag']
@@ -288,34 +288,60 @@ with tab2:
             importance_data = []
             for feat, imp in zip(all_feats, all_importances):
                 if feat in active_ingredients:
-                    importance_data.append({'成分': feat.replace('_weight', ''), '重要程度': imp})
+                    importance_data.append({'成分': feat.replace('_weight', ''), '原始重要程度': imp})
             
             df_imp = pd.DataFrame(importance_data)
 
-            selected_display = st.multiselect(
-                "選擇欲觀察的成分：", 
-                options=df_imp['成分'].tolist(), 
-                default=df_imp['成分'].tolist()
-            )
+            # 使用 4 個一排的 Checkbox 讓使用者勾選
+            st.markdown("##### 🧪 勾選欲觀察的成分：")
+            cols = st.columns(4)
+            selected_display = []
+            
+            for i, chem in enumerate(df_imp['成分'].tolist()):
+                with cols[i % 4]:
+                    # 預設全部勾選
+                    if st.checkbox(chem, value=True, key=f"imp_chk_{chem}"):
+                        selected_display.append(chem)
 
             if selected_display:
-                # Plotly 橫條圖預設由下往上畫，所以用 ascending=True 讓最重要的在最上面
-                plot_df = df_imp[df_imp['成分'].isin(selected_display)].sort_values('重要程度', ascending=True)
+                plot_df = df_imp[df_imp['成分'].isin(selected_display)].copy()
                 
-                # 建立 Plotly 互動圖表
-                fig_imp = px.bar(plot_df, x='重要程度', y='成分', orientation='h', 
-                                 color_discrete_sequence=['#4A90E2'])
-                # 設定高度限制，避免圖表過大
-                fig_imp.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0), 
-                                      title_text="選定成分之相對影響力排行榜")
+                # 計算相對百分比 (讓被勾選的項目總和強制為 100%)
+                total_selected_imp = plot_df['原始重要程度'].sum()
+                if total_selected_imp > 0:
+                    plot_df['相對百分比'] = (plot_df['原始重要程度'] / total_selected_imp) * 100
+                else:
+                    plot_df['相對百分比'] = 0.0
+                    
+                # 排序讓最長的 bar 在最上面
+                plot_df = plot_df.sort_values('相對百分比', ascending=True)
+                
+                # 建立 Plotly 互動圖表 (顯示 % 符號)
+                fig_imp = px.bar(
+                    plot_df, 
+                    x='相對百分比', 
+                    y='成分', 
+                    orientation='h', 
+                    text=plot_df['相對百分比'].apply(lambda x: f'{x:.1f}%'),
+                    color_discrete_sequence=['#4A90E2']
+                )
+                fig_imp.update_traces(textposition='outside')
+                # 為了避免文字被切斷，將 x 軸最大值拉寬一點
+                fig_imp.update_layout(
+                    height=350, 
+                    margin=dict(l=0, r=40, t=30, b=0), 
+                    xaxis_title="選定成分間的相對影響力 (%)",
+                    yaxis_title="",
+                    xaxis=dict(range=[0, plot_df['相對百分比'].max() * 1.15]) 
+                )
                 st.plotly_chart(fig_imp, use_container_width=True)
-                st.info("💡 提示：滑鼠游標移至圖表上可查看精確數值。指標越高，代表影響越大。")
             else:
-                st.warning("請至少選擇一個成分進行分析。")
+                st.warning("⚠️ 請至少勾選一個成分進行分析。")
 
-            # --- 【改用 Plotly：雙目標預測信心區間與分佈圖】 ---
+            # --- 【改用 Plotly：雙目標預測信心區間與全體分佈圖】 ---
             st.divider()
-            st.subheader("🛡️ 預測值信心評估 (歷史分佈與誤差)")
+            st.subheader("🛡️ 預測值信心評估 (全體歷史資料庫大盤點)")
+            st.write("此圖表顯示的是**「公司過去所有實驗數據」**的總體分佈。目的是讓您了解，本次 AI 推測的數值 (紅色虛線) 落在過往經驗中的哪個位置 (是常態值還是極端值)。")
             
             # 取得歷史預測結果以計算誤差
             X_all_raw = st.session_state.df[st.session_state.feature_cols].fillna(0)
@@ -337,70 +363,30 @@ with tab2:
             with conf_c1:
                 st.markdown("#### 🔵 預估 Snag Cu 範圍")
                 st.success(f"{xgb_snag_val - avg_error_snag:.3f} ~ {xgb_snag_val + avg_error_snag:.3f} um")
-                st.caption(f"(歷史平均誤差 ±{avg_error_snag:.4f} um)")
+                st.caption(f"(基於全體歷史平均誤差 ±{avg_error_snag:.4f} um)")
                 
                 # 繪製 Snag Cu 直方分佈圖
                 fig_snag = px.histogram(st.session_state.df, x='snag_cu_undercut_um', nbins=30, 
                                         opacity=0.7, color_discrete_sequence=['#8bb1d6'])
-                fig_snag.add_vline(x=xgb_snag_val, line_dash="dash", line_color="red", annotation_text="本次預測")
+                fig_snag.add_vline(x=xgb_snag_val, line_dash="dash", line_color="red", annotation_text="本次推測落點")
                 fig_snag.update_layout(height=280, margin=dict(l=0, r=0, t=30, b=0), 
-                                       xaxis_title="Snag Cu (um)", yaxis_title="歷史發生次數", showlegend=False)
+                                       xaxis_title="全體歷史 Snag Cu (um)", yaxis_title="發生次數", showlegend=False)
                 st.plotly_chart(fig_snag, use_container_width=True)
 
             with conf_c2:
                 st.markdown("#### 🟢 預估 Cu Ni 範圍")
                 st.success(f"{xgb_cuni_val - avg_error_cuni:.3f} ~ {xgb_cuni_val + avg_error_cuni:.3f} um")
-                st.caption(f"(歷史平均誤差 ±{avg_error_cuni:.4f} um)")
+                st.caption(f"(基於全體歷史平均誤差 ±{avg_error_cuni:.4f} um)")
                 
                 # 繪製 Cu Ni 直方分佈圖
                 fig_cuni = px.histogram(st.session_state.df, x='cu_ni_undercut_um', nbins=30, 
                                         opacity=0.7, color_discrete_sequence=['#95d5b2'])
-                fig_cuni.add_vline(x=xgb_cuni_val, line_dash="dash", line_color="red", annotation_text="本次預測")
+                fig_cuni.add_vline(x=xgb_cuni_val, line_dash="dash", line_color="red", annotation_text="本次推測落點")
                 fig_cuni.update_layout(height=280, margin=dict(l=0, r=0, t=30, b=0), 
-                                       xaxis_title="Cu Ni (um)", yaxis_title="歷史發生次數", showlegend=False)
+                                       xaxis_title="全體歷史 Cu Ni (um)", yaxis_title="發生次數", showlegend=False)
                 st.plotly_chart(fig_cuni, use_container_width=True)
-
+                
             st.divider()
-            
-            # 歷史查詢 (保留原始重量的嚴格比對邏輯)
-            st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
-            selected_chems = list(chem_inputs.keys())
-            unselected_chems = [c for c in optional_chems if c not in selected_chems]
-            
-            mask_selected = pd.Series(True, index=st.session_state.df.index)
-            for c in selected_chems:
-                if c in st.session_state.df.columns:
-                    mask_selected = mask_selected & (st.session_state.df[c] > 0)
-                    
-            valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
-            extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
-            mask_extra = extra_additive_count <= 1
-            
-            matched_df = st.session_state.df[mask_selected & mask_extra].copy()
-            
-            if matched_df.empty:
-                st.info("💡 資料庫中目前沒有相近的歷史配方。這是一組全新的嘗試！")
-            else:
-                st.success(f"🔍 找到 {len(matched_df)} 筆相似的歷史配方！")
-                matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
-                
-                cols_to_show = set(selected_chems)
-                for c in valid_unselected:
-                    if (matched_df[c] > 0).any():  
-                        cols_to_show.add(c)
-                        
-                display_cols = ['item', 'date_folder', 'chemical_formula', 'region', 'H2O_weight', 'H3PO4_weight', 'H2O2_weight'] + list(cols_to_show) + ['snag_cu_undercut_um', 'cu_ni_undercut_um', 'result']
-                display_cols = [c for c in display_cols if c in matched_df.columns]
-                df_to_display = matched_df[display_cols]
-                
-                def highlight_identical(row):
-                    is_identical = matched_df.loc[row.name, 'extra_count'] == 0
-                    return ['color: #ff4b4b'] * len(row) if is_identical else [''] * len(row)
-
-                styled_df = df_to_display.style.apply(highlight_identical, axis=1)
-                st.dataframe(styled_df, use_container_width=True)
-
-        st.divider()
         
 # ------------------------------------------
 # 分頁三：逆向最佳配方探索
