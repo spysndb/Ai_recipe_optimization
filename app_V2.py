@@ -184,6 +184,16 @@ with tab1:
                 train_models(df)
                 st.session_state["current_file_id"] = file_id
             st.success("✅ 資料讀取與多重模型訓練成功！您可以前往「正向推測」分頁。")
+            # 【新增】顯示健康診斷表格
+            st.markdown("### 📊 模型健康診斷 (Model Health)")
+            st.write("這代表 AI 對目前資料庫的理解程度，$R^2$ 越接近 **1.0** 代表過去資料的擬合度越高。")
+            h = st.session_state.health_metrics
+            health_df = pd.DataFrame({
+                "預測目標": ["Snag Cu (um)", "Cu Ni (um)"],
+                "隨機森林精度 ($R^2$)": [f"{h['RF_Snag']:.3f}", f"{h['RF_CuNi']:.3f}"],
+                "XGBoost精度 ($R^2$)": [f"{h['XGB_Snag']:.3f}", f"{h['XGB_CuNi']:.3f}"]
+            })
+            st.table(health_df)
         else:
             st.success("✅ 資料庫與模型已在記憶體中準備就緒！您可以放心操作。")
 
