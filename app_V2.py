@@ -413,54 +413,88 @@ with tab2:
                 st.warning("⚠️ 請至少勾選一個成分進行分析。")
 
             # --- 【改用 Plotly：雙目標預測信心區間與全體分佈圖】 ---
+           # --- 【信心評估面板：讓操作者一眼看懂可信度】 ---
             st.divider()
-            st.subheader("🛡️ 預測值信心評估 (全體歷史資料庫大盤點)")
-            st.write("此圖表顯示的是**「公司過去所有實驗數據」**的總體分佈。目的是讓您了解，本次 AI 推測的數值 (紅色虛線) 落在過往經驗中的哪個位置 (是常態值還是極端值)。")
+            st.subheader("🛡️ AI 推測信心評估報告")
             
-            # 取得歷史預測結果以計算誤差
+            # 1. 計算數據接近度 (Proximity Score)
+            # 找出資料庫中與目前輸入最像的配方距離
             X_all_raw = st.session_state.df[st.session_state.feature_cols].fillna(0)
             X_all_pct = convert_to_wt_pct(X_all_raw, st.session_state.feature_cols)
             
-            # Snag Cu 誤差計算
-            y_all_real_snag = st.session_state.df['snag_cu_undercut_um'].fillna(0)
-            y_all_pred_snag = st.session_state.models['xgb_snag'].predict(X_all_pct)
-            avg_error_snag = np.mean(np.abs(y_all_real_snag - y_all_pred_snag))
+            # 計算歐幾里得距離 (Euclidean distance)
+            dist_all = np.sqrt(((X_all_pct - input_pct.iloc[0])**2).sum(axis=1))
+            min_dist = dist_all.min()
             
-            # Cu Ni 誤差計算
-            y_all_real_cuni = st.session_state.df['cu_ni_undercut_um'].fillna(0)
-            y_all_pred_cuni = st.session_state.models['xgb_cu_ni'].predict(X_all_pct)
-            avg_error_cuni = np.mean(np.abs(y_all_real_cuni - y_all_pred_cuni))
-            
-            # 建立左右兩欄，左邊放 Snag Cu，右邊放 Cu Ni
-            conf_c1, conf_c2 = st.columns(2)
+            # 將距離轉換為 0-100 的得分 (距離 0 代表完全一樣 100分，距離越大分數越低)
+            # 20 是調整係數，可依實際感受調整
+            proximity_score = max(0, min(100, 100 - (min_dist * 15))) 
+
+            # 2. 計算模型共識度 (Consensus Score)
+            # 看看三顆 AI 大腦預測的 Snag Cu 是否一致
+            preds = [rf_snag_val, xgb_snag_val, ridge_snag_val]
+            cv = np.std(preds) / np.mean(preds) if np.mean(preds) != 0 else 0 # 變異係數
+            consensus_score = max(0, min(100, 100 - (cv * 200))) 
+
+            # 3. 綜合信心指數
+            total_confidence = (proximity_score * 0.6) + (consensus_score * 0.4)
+
+            # --- 顯示面板 ---
+            conf_c1, conf_c2, conf_c3 = st.columns(3)
             
             with conf_c1:
-                st.markdown("#### 🔵 預估 Snag Cu 範圍")
-                st.success(f"{xgb_snag_val - avg_error_snag:.3f} ~ {xgb_snag_val + avg_error_snag:.3f} um")
-                st.caption(f"(基於全體歷史平均誤差 ±{avg_error_snag:.4f} um)")
-                
-                # 繪製 Snag Cu 直方分佈圖
-                fig_snag = px.histogram(st.session_state.df, x='snag_cu_undercut_um', nbins=30, 
-                                        opacity=0.7, color_discrete_sequence=['#8bb1d6'])
-                fig_snag.add_vline(x=xgb_snag_val, line_dash="dash", line_color="red", annotation_text="本次推測落點")
-                fig_snag.update_layout(height=280, margin=dict(l=0, r=0, t=30, b=0), 
-                                       xaxis_title="全體歷史 Snag Cu (um)", yaxis_title="發生次數", showlegend=False)
-                st.plotly_chart(fig_snag, use_container_width=True)
+                st.write("**數據接近度 (經驗)**")
+                if proximity_score > 85:
+                    st.success(f"💎 優 ( {proximity_score:.0f}分 )")
+                elif proximity_score > 60:
+                    st.warning(f"🟡 良 ( {proximity_score:.0f}分 )")
+                else:
+                    st.error(f"❄️ 偏低 ( {proximity_score:.0f}分 )")
+                st.caption("這代表資料庫中是否有相似配方的實驗紀錄。")
 
             with conf_c2:
-                st.markdown("#### 🟢 預估 Cu Ni 範圍")
-                st.success(f"{xgb_cuni_val - avg_error_cuni:.3f} ~ {xgb_cuni_val + avg_error_cuni:.3f} um")
-                st.caption(f"(基於全體歷史平均誤差 ±{avg_error_cuni:.4f} um)")
+                st.write("**模型共識度 (信心)**")
+                if consensus_score > 85:
+                    st.success(f"🤝 極高 ( {consensus_score:.0f}分 )")
+                elif consensus_score > 60:
+                    st.warning(f"🤔 一般 ( {consensus_score:.0f}分 )")
+                else:
+                    st.error(f"🚫 分歧 ( {consensus_score:.0f}分 )")
+                st.caption("這代表三種不同的 AI 演算法對此配方的預測是否一致。")
+
+            with conf_c3:
+                st.write("**綜合信賴指數**")
+                # 用進度條來顯示最終信心值
+                st.progress(total_confidence / 100)
+                if total_confidence > 80:
+                    st.success(f"✅ **{total_confidence:.1f}% 可信**")
+                elif total_confidence > 50:
+                    st.warning(f"⚠️ **{total_confidence:.1f}% 建議驗證**")
+                else:
+                    st.error(f"❌ **{total_confidence:.1f}% 風險較高**")
+
+            # 保留原本的誤差範圍與分佈圖 (放在下方當作詳細佐證)
+            with st.expander("🔍 點擊查看詳細數據分佈與誤差估計"):
+                # (這裡放原本計算 MAE 誤差和畫圖的程式碼，你可以直接搬過來)
+                y_all_real_snag = st.session_state.df['snag_cu_undercut_um'].fillna(0)
+                y_all_pred_snag = st.session_state.models['xgb_snag'].predict(X_all_pct)
+                avg_error_snag = np.mean(np.abs(y_all_real_snag - y_all_pred_snag))
                 
-                # 繪製 Cu Ni 直方分佈圖
-                fig_cuni = px.histogram(st.session_state.df, x='cu_ni_undercut_um', nbins=30, 
-                                        opacity=0.7, color_discrete_sequence=['#95d5b2'])
-                fig_cuni.add_vline(x=xgb_cuni_val, line_dash="dash", line_color="red", annotation_text="本次推測落點")
-                fig_cuni.update_layout(height=280, margin=dict(l=0, r=0, t=30, b=0), 
-                                       xaxis_title="全體歷史 Cu Ni (um)", yaxis_title="發生次數", showlegend=False)
-                st.plotly_chart(fig_cuni, use_container_width=True)
-                
-            st.divider()
+                y_all_real_cuni = st.session_state.df['cu_ni_undercut_um'].fillna(0)
+                y_all_pred_cuni = st.session_state.models['xgb_cu_ni'].predict(X_all_pct)
+                avg_error_cuni = np.mean(np.abs(y_all_real_cuni - y_all_pred_cuni))
+
+                d1, d2 = st.columns(2)
+                with d1:
+                    st.write(f"Snag Cu 誤差範圍: ±{avg_error_snag:.3f} um")
+                    fig_snag = px.histogram(st.session_state.df, x='snag_cu_undercut_um', nbins=30, opacity=0.7)
+                    fig_snag.add_vline(x=xgb_snag_val, line_dash="dash", line_color="red")
+                    st.plotly_chart(fig_snag, use_container_width=True)
+                with d2:
+                    st.write(f"Cu Ni 誤差範圍: ±{avg_error_cuni:.3f} um")
+                    fig_cuni = px.histogram(st.session_state.df, x='cu_ni_undercut_um', nbins=30, opacity=0.7)
+                    fig_cuni.add_vline(x=xgb_cuni_val, line_dash="dash", line_color="red")
+                    st.plotly_chart(fig_cuni, use_container_width=True)
 
 
             # 歷史查詢 (保留原始重量的嚴格比對邏輯)
