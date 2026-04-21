@@ -494,7 +494,16 @@ with tab2:
 
 
             # 歷史查詢 (保留原始重量的嚴格比對邏輯)
-            st.markdown("#### 📚 歷史相似配方清單 (完全相同 = 🔴紅色字體，多加1種 = 預設顏色)")
+            # --- 【雙重通知版：歷史配方查詢】 ---
+            st.divider()
+            st.markdown("#### 📚 歷史相似配方清單")
+            
+            # 搜尋寬鬆度設定
+            col_search1, col_search2 = st.columns([1, 2])
+            with col_search1:
+                max_extra = st.number_input("🔍 容許額外添加物數量：", min_value=0, max_value=5, value=2)
+            
+            # 1. 執行篩選邏輯
             selected_chems = list(chem_inputs.keys())
             unselected_chems = [c for c in optional_chems if c not in selected_chems]
             
@@ -505,9 +514,13 @@ with tab2:
                     
             valid_unselected = [c for c in unselected_chems if c in st.session_state.df.columns]
             extra_additive_count = (st.session_state.df[valid_unselected] > 0).sum(axis=1)
-            mask_extra = extra_additive_count <= 1
+            mask_extra = extra_additive_count <= max_extra
             
             matched_df = st.session_state.df[mask_selected & mask_extra].copy()
+            matched_df['extra_count'] = extra_additive_count[mask_selected & mask_extra]
+
+            # 2. 判斷是否有「完全相同」的紀錄 (extra_count 為 0 且數值相等)
+            # 這裡沿用您前面已經做好的 has_exact_match 變數
             
             # 3. 雙重通知顯示
             if matched_df.empty:
@@ -543,7 +556,6 @@ with tab2:
 
                 styled_df = df_to_display.style.apply(highlight_identical, axis=1)
                 st.dataframe(styled_df, use_container_width=True)
-
         st.divider()
 
         
