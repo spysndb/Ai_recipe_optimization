@@ -13,8 +13,8 @@ import random
 # ==========================================
 # 1. 頁面基本設定與分類字典
 # ==========================================
-st.set_page_config(page_title="蝕刻配方推測系統", page_icon="🧪", layout="wide")
-st.title("🧪 智慧化學蝕刻配方推測系統 (wt% 濃度百分比)")
+st.set_page_config(page_title="蝕刻配方推測系統 V9", page_icon="🧪", layout="wide")
+st.title("🧪 智慧化學蝕刻配方推測系統 V9 (wt% 濃度百分比)")
 
 # 定義不進入特徵運算的欄位與目標欄位
 NON_FEATURE_COLS = ['date_folder', 'item', 'chemical_formula', 'chemical_weights', 'result', 'etch_time_value_sec', 'etch_time_note']
@@ -100,6 +100,41 @@ def convert_to_wt_pct(X_df, feature_cols):
     X_pct[chem_cols] = X_pct[chem_cols].div(total_weights, axis=0) * 100
     return X_pct
 
+def fit_xgb_model(X, y, target_name):
+    gpu_model = xgb.XGBRegressor(
+        n_estimators=100,
+        learning_rate=0.1,
+        random_state=42,
+        tree_method="hist",
+        device="cuda",
+    )
+
+    try:
+        model = gpu_model.fit(X, y)
+        model.get_booster().set_param({"device": "cpu"})
+        st.info(f"✅ XGBoost {target_name} 使用 GPU / CUDA 訓練")
+        return model
+    except Exception as e:
+        st.warning(f"⚠️ XGBoost {target_name} 無法使用 GPU，已改用 CPU。原因：{e}")
+
+        cpu_model = xgb.XGBRegressor(
+            n_estimators=100,
+            learning_rate=0.1,
+            random_state=42,
+            tree_method="hist",
+            device="cpu",
+        )
+        return cpu_model.fit(X, y)
+
+def predict_xgb_batch(model, X, target_name, prefer_gpu=False):
+    booster = model.get_booster()
+
+    if prefer_gpu:
+        st.caption(f"ℹ️ XGBoost {target_name} 採用穩定 CPU 批次預測；GPU 保留給模型訓練。")
+
+    booster.set_param({"device": "cpu"})
+    return model.predict(X)
+
 def train_models(df):
     feature_cols = [col for col in df.columns if col not in NON_FEATURE_COLS + TARGET_COLS]
     st.session_state.feature_cols = feature_cols
@@ -118,8 +153,8 @@ def train_models(df):
     rf_snag = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_snag)
     rf_cu_ni = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_pct, y_cu_ni)
     
-    xgb_snag = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_snag)
-    xgb_cu_ni = xgb.XGBRegressor(n_estimators=100, learning_rate=0.1, random_state=42).fit(X_pct, y_cu_ni)
+    xgb_snag = fit_xgb_model(X_pct, y_snag, "Snag Cu")
+    xgb_cu_ni = fit_xgb_model(X_pct, y_cu_ni, "Cu Ni")
     
     ridge_snag = Ridge(alpha=1.0).fit(X_scaled, y_snag)
     ridge_cu_ni = Ridge(alpha=1.0).fit(X_scaled, y_cu_ni)
@@ -593,14 +628,14 @@ with tab3:
 
         with t3_c3:
             st.markdown("### 🤖 執行運算")
-            btn_explore = st.button("🔍 開始 10,000 次平行宇宙模擬探索", type="primary", use_container_width=True)
+            btn_explore = st.button("🔍 開始 100,000 次平行宇宙模擬探索", type="primary", use_container_width=True)
 
         if btn_explore:
             if len(tab3_selected_bases) + len(tab3_selected_chems) == 0:
                 st.warning("⚠️ 請至少勾選一種原料！")
             else:
                 with st.spinner("AI 正在尋找最佳重量，並自動為您換算成 100g 總重比例..."):
-                    N_SIMULATIONS = 10000
+                    N_SIMULATIONS = 100000
                     sim_data_1 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
                     sim_data_0 = {col: np.zeros(N_SIMULATIONS) for col in st.session_state.feature_cols}
                     
@@ -729,22 +764,72 @@ with tab4:
         
         with t4_c3:
             st.markdown("### 🤖 3. 執行探索")
-            if st.button("🚀 開始 10,000 次 AI 組合模擬", type="primary", use_container_width=True):
+            if st.button("🚀 開始 1,000,000 次 AI 組合模擬", type="primary", use_container_width=True):
                 if len(final_pool) < k_num: st.error("候選原料不足。")
                 elif not (use_s or use_c): st.warning("請至少選一個目標。")
                 else:
                     with st.spinner("AI 正在排列組合與演算中..."):
+                        n_simulations = 1000000
+                        k_selected = int(k_num)
+                        feature_cols = st.session_state.feature_cols
+                        feature_index = {col: idx for idx, col in enumerate(feature_cols)}
+                        base_list = ['H2O_weight', 'H3PO4_weight', 'H2O2_weight']
+
+                        candidate_values = np.zeros((n_simulations, len(feature_cols)), dtype=float)
+                        if 'temp' in feature_index:
+                            candidate_values[:, feature_index['temp']] = 25.0
+                        if 'region' in feature_index:
+                            candidate_values[:, feature_index['region']] = 1.0
+                        if 'H2O_weight' in feature_index:
+                            candidate_values[:, feature_index['H2O_weight']] = np.random.uniform(50, 80, n_simulations)
+                        if 'H3PO4_weight' in feature_index:
+                            candidate_values[:, feature_index['H3PO4_weight']] = np.random.uniform(5, 20, n_simulations)
+                        if 'H2O2_weight' in feature_index:
+                            candidate_values[:, feature_index['H2O2_weight']] = np.random.uniform(5, 20, n_simulations)
+
+                        selected_sets = []
+                        for row_idx in range(n_simulations):
+                            sel = random.sample(final_pool, k_selected)
+                            selected_sets.append(sel)
+                            candidate_values[row_idx, [feature_index[s] for s in sel]] = np.random.uniform(0.1, 5, k_selected)
+
+                        df_candidates = pd.DataFrame(candidate_values, columns=feature_cols)
+                        df_candidates_pct = convert_to_wt_pct(df_candidates, feature_cols)
+
+                        pred_snag = predict_xgb_batch(
+                            st.session_state.models['xgb_snag'],
+                            df_candidates_pct,
+                            "Snag Cu",
+                            prefer_gpu=False,
+                        )
+                        pred_cuni = predict_xgb_batch(
+                            st.session_state.models['xgb_cu_ni'],
+                            df_candidates_pct,
+                            "Cu Ni",
+                            prefer_gpu=False,
+                        )
+
+                        total_error = np.zeros(n_simulations, dtype=float)
+                        if use_s:
+                            total_error += np.abs(pred_snag - tar_s)
+                        if use_c:
+                            total_error += np.abs(pred_cuni - tar_c)
+
+                        top_indices = np.argsort(total_error)[:3]
                         results = []
-                        for _ in range(10000):
-                            sel = random.sample(final_pool, int(k_num))
-                            row = {c: 0.0 for c in st.session_state.feature_cols}
-                            row.update({'temp':25.0, 'region':1, 'H2O_weight':np.random.uniform(50,80), 'H3PO4_weight':np.random.uniform(5,20), 'H2O2_weight':np.random.uniform(5,20)})
-                            for s in sel: row[s] = np.random.uniform(0.1, 5)
-                            df_p = convert_to_wt_pct(pd.DataFrame([row]), st.session_state.feature_cols)
-                            ps, pc = st.session_state.models['xgb_snag'].predict(df_p)[0], st.session_state.models['xgb_cu_ni'].predict(df_p)[0]
-                            err = (abs(ps-tar_s) if use_s else 0) + (abs(pc-tar_c) if use_c else 0)
-                            results.append({'error': err, 'snag': ps, 'cuni': pc, 'formula': "+".join(["H2O","H3PO4","H2O2"]+[x.replace('_weight','') for x in sel]), 'weights': "+".join([f"{df_p[x].iloc[0]:.2f}" for x in (['H2O_weight','H3PO4_weight','H2O2_weight']+sel)])})
-                        top = pd.DataFrame(results).sort_values('error').head(3)
+                        for idx in top_indices:
+                            sel = selected_sets[idx]
+                            display_cols = [c for c in base_list + sel if c in df_candidates_pct.columns]
+                            results.append({
+                                'error': total_error[idx],
+                                'snag': pred_snag[idx],
+                                'cuni': pred_cuni[idx],
+                                'formula': "+".join(["H2O", "H3PO4", "H2O2"] + [x.replace('_weight', '') for x in sel]),
+                                'weights': "+".join([f"{df_candidates_pct[x].iloc[idx]:.2f}" for x in display_cols]),
+                            })
+
+                        top = pd.DataFrame(results)
+                        st.caption("V9：已改為 1,000,000 筆候選配方批次產生與批次預測，減少 Python 單筆迴圈負擔。")
                         for i, r in top.reset_index(drop=True).iterrows():
                             st.success(f"🏆 推薦組合 {i+1}")
                             st.write(f"預測 Snag: {r['snag']:.3f} / CuNi: {r['cuni']:.3f}")
