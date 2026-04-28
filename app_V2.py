@@ -745,12 +745,12 @@ with tab4:
         
         with t4_c3:
             st.markdown("### 🤖 3. 執行探索")
-            if st.button("🚀 開始 1,0,000 次 AI 組合模擬", type="primary", use_container_width=True):
+            if st.button("🚀 開始 1,00,000 次 AI 組合模擬", type="primary", use_container_width=True):
                 if len(final_pool) < k_num: st.error("候選原料不足。")
                 elif not (use_s or use_c): st.warning("請至少選一個目標。")
                 else:
                     with st.spinner("AI 正在排列組合與演算中..."):
-                        n_simulations = 10000
+                        n_simulations = 100000
                         k_selected = int(k_num)
                         feature_cols = st.session_state.feature_cols
                         feature_index = {col: idx for idx, col in enumerate(feature_cols)}
@@ -808,7 +808,7 @@ with tab4:
                             })
 
                         top = pd.DataFrame(results)
-                        st.caption("V9：已改為 1,0,000 筆候選配方批次產生與批次預測，減少 Python 單筆迴圈負擔。")
+                        st.caption("V9：已改為 1,00,000 筆候選配方批次產生與批次預測，減少 Python 單筆迴圈負擔。")
                         for i, r in top.reset_index(drop=True).iterrows():
                             st.success(f"🏆 推薦組合 {i+1}")
                             st.write(f"預測 Snag: {r['snag']:.3f} / CuNi: {r['cuni']:.3f}")
