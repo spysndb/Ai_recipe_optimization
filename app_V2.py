@@ -101,37 +101,18 @@ def convert_to_wt_pct(X_df, feature_cols):
     return X_pct
 
 def fit_xgb_model(X, y, target_name):
-    gpu_model = xgb.XGBRegressor(
+    model = xgb.XGBRegressor(
         n_estimators=100,
         learning_rate=0.1,
         random_state=42,
         tree_method="hist",
-        device="cuda",
+        device="cpu",
     )
+    st.info(f"✅ XGBoost {target_name} 使用 CPU 訓練")
+    return model.fit(X, y)
 
-    try:
-        model = gpu_model.fit(X, y)
-        model.get_booster().set_param({"device": "cpu"})
-        st.info(f"✅ XGBoost {target_name} 使用 GPU / CUDA 訓練")
-        return model
-    except Exception as e:
-        st.warning(f"⚠️ XGBoost {target_name} 無法使用 GPU，已改用 CPU。原因：{e}")
-
-        cpu_model = xgb.XGBRegressor(
-            n_estimators=100,
-            learning_rate=0.1,
-            random_state=42,
-            tree_method="hist",
-            device="cpu",
-        )
-        return cpu_model.fit(X, y)
-
-def predict_xgb_batch(model, X, target_name, prefer_gpu=False):
+def predict_xgb_batch(model, X, target_name):
     booster = model.get_booster()
-
-    if prefer_gpu:
-        st.caption(f"ℹ️ XGBoost {target_name} 採用穩定 CPU 批次預測；GPU 保留給模型訓練。")
-
     booster.set_param({"device": "cpu"})
     return model.predict(X)
 
@@ -800,13 +781,11 @@ with tab4:
                             st.session_state.models['xgb_snag'],
                             df_candidates_pct,
                             "Snag Cu",
-                            prefer_gpu=False,
                         )
                         pred_cuni = predict_xgb_batch(
                             st.session_state.models['xgb_cu_ni'],
                             df_candidates_pct,
                             "Cu Ni",
-                            prefer_gpu=False,
                         )
 
                         total_error = np.zeros(n_simulations, dtype=float)
